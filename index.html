@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Wishlist Planner</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <h1>✨ Smart Wishlist Planner</h1>
+            <p class="subtitle">Plan your purchases intelligently</p>
+        </header>
+
+        <!-- Financial Profile Section -->
+        <section class="financial-profile card">
+            <h2>💰 Financial Profile</h2>
+            <div class="profile-form">
+                <div class="form-group">
+                    <label>Income Type:</label>
+                    <select id="incomeType">
+                        <option value="hourly">Hourly</option>
+                        <option value="monthly">Monthly</option>
+                        <option value="yearly">Yearly</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Income Amount:</label>
+                    <input type="number" id="incomeAmount" placeholder="e.g., 25" step="0.01">
+                </div>
+                <div class="form-group">
+                    <label>Monthly Expenses:</label>
+                    <input type="number" id="monthlyExpenses" placeholder="e.g., 1500" step="0.01">
+                </div>
+                <button id="saveProfile" class="btn btn-primary">Save Profile</button>
+            </div>
+            <div id="profileSummary" class="profile-summary hidden"></div>
+        </section>
+
+        <!-- Goals Section -->
+        <section class="goals-section card">
+            <div class="section-header">
+                <h2>🎯 Goals</h2>
+                <button id="addGoalBtn" class="btn btn-secondary">+ New Goal</button>
+            </div>
+            <div id="goalsList" class="goals-list"></div>
+        </section>
+
+        <!-- Add Item Section -->
+        <section class="add-item-section card">
+            <h2>➕ Add Item</h2>
+            <div class="tabs">
+                <button class="tab-btn active" data-tab="link">Add by Link</button>
+                <button class="tab-btn" data-tab="manual">Manual Entry</button>
+            </div>
+            
+            <div id="linkTab" class="tab-content active">
+                <div class="form-group">
+                    <label>Product URL:</label>
+                    <input type="url" id="productUrl" placeholder="https://example.com/product">
+                </div>
+                <button id="scrapeItemBtn" class="btn btn-primary">✨ Scrape with AI</button>
+                <div id="scrapingStatus" class="status-message"></div>
+            </div>
+
+            <div id="manualTab" class="tab-content">
+                <div class="form-group">
+                    <label>Item Title:</label>
+                    <input type="text" id="itemTitle" placeholder="Product name">
+                </div>
+                <div class="form-group">
+                    <label>Price ($):</label>
+                    <input type="number" id="itemPrice" placeholder="0.00" step="0.01">
+                </div>
+                <div class="form-group">
+                    <label>Image URL:</label>
+                    <input type="url" id="itemImageUrl" placeholder="https://example.com/image.jpg">
+                </div>
+                <div class="form-group">
+                    <label>Specifications (one per line):</label>
+                    <textarea id="itemSpecs" rows="4" placeholder="Spec 1&#10;Spec 2&#10;Spec 3"></textarea>
+                </div>
+                <button id="addManualItemBtn" class="btn btn-primary">Add Item</button>
+            </div>
+
+            <!-- Item Details Form (shown after scraping or for editing) -->
+            <div id="itemDetailsForm" class="item-details-form hidden">
+                <h3>Item Details</h3>
+                <div class="form-group">
+                    <label>Title:</label>
+                    <input type="text" id="detailTitle">
+                </div>
+                <div class="form-group">
+                    <label>Price ($):</label>
+                    <input type="number" id="detailPrice" step="0.01">
+                </div>
+                <div class="form-group">
+                    <label>Image URL:</label>
+                    <input type="url" id="detailImageUrl">
+                </div>
+                <div class="form-group">
+                    <label>Specifications (one per line):</label>
+                    <textarea id="detailSpecs" rows="6"></textarea>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Category:</label>
+                        <input type="text" id="detailCategory" placeholder="e.g., Tech, Home">
+                    </div>
+                    <div class="form-group">
+                        <label>Priority:</label>
+                        <select id="detailPriority">
+                            <option value="low">Low</option>
+                            <option value="medium" selected>Medium</option>
+                            <option value="high">High</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Tags (comma-separated):</label>
+                    <input type="text" id="detailTags" placeholder="tag1, tag2, tag3">
+                </div>
+                <div class="form-group">
+                    <label>Goal:</label>
+                    <select id="detailGoal">
+                        <option value="">No Goal</option>
+                    </select>
+                </div>
+                <div class="form-actions">
+                    <button id="saveItemBtn" class="btn btn-primary">Save Item</button>
+                    <button id="cancelItemBtn" class="btn btn-secondary">Cancel</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Filters and Sorting -->
+        <section class="filters-section card">
+            <div class="filters-row">
+                <div class="form-group">
+                    <label>Sort by:</label>
+                    <select id="sortBy">
+                        <option value="date">Date Added</option>
+                        <option value="price-desc">Price (High-Low)</option>
+                        <option value="price-asc">Price (Low-High)</option>
+                        <option value="name">Name (A-Z)</option>
+                        <option value="priority">Priority</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Filter by Category:</label>
+                    <select id="filterCategory">
+                        <option value="">All Categories</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Filter by Goal:</label>
+                    <select id="filterGoal">
+                        <option value="">All Goals</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Filter by Priority:</label>
+                    <select id="filterPriority">
+                        <option value="">All Priorities</option>
+                        <option value="high">High</option>
+                        <option value="medium">Medium</option>
+                        <option value="low">Low</option>
+                    </select>
+                </div>
+            </div>
+        </section>
+
+        <!-- Wishlist Display -->
+        <section class="wishlist-section">
+            <div class="section-header">
+                <h2>📋 Wishlist</h2>
+                <div id="wishlistStats" class="wishlist-stats"></div>
+            </div>
+            <div id="wishlistItems" class="wishlist-grid"></div>
+        </section>
+
+        <!-- What-If Calculator -->
+        <section class="whatif-section card">
+            <h2>🔮 What-If Scenarios</h2>
+            <div class="whatif-form">
+                <div class="form-group">
+                    <label>Reduce monthly expenses by ($):</label>
+                    <input type="number" id="reduceExpenses" placeholder="0" step="0.01">
+                </div>
+                <div class="form-group">
+                    <label>Increase income by ($/hour or $/month or $/year):</label>
+                    <input type="number" id="increaseIncome" placeholder="0" step="0.01">
+                </div>
+                <button id="calculateWhatIf" class="btn btn-primary">Calculate Impact</button>
+            </div>
+            <div id="whatifResults" class="whatif-results hidden"></div>
+        </section>
+
+        <!-- Savings Planner -->
+        <section class="savings-planner card">
+            <h2>💾 Savings Planner</h2>
+            <div class="planner-form">
+                <div class="form-group">
+                    <label>Savings Amount:</label>
+                    <input type="number" id="savingsAmount" placeholder="0" step="0.01">
+                </div>
+                <div class="form-group">
+                    <label>Savings Frequency:</label>
+                    <select id="savingsFrequency">
+                        <option value="weekly">Weekly</option>
+                        <option value="monthly" selected>Monthly</option>
+                    </select>
+                </div>
+                <button id="calculateSavings" class="btn btn-primary">Calculate Timeline</button>
+            </div>
+            <div id="savingsResults" class="savings-results hidden"></div>
+        </section>
+    </div>
+
+    <!-- Item Hover Card (Modal) -->
+    <div id="itemModal" class="modal hidden">
+        <div class="modal-content">
+            <span class="close-modal">&times;</span>
+            <div id="modalContent"></div>
+        </div>
+    </div>
+
+    <!-- Goal Modal -->
+    <div id="goalModal" class="modal hidden">
+        <div class="modal-content">
+            <span class="close-modal">&times;</span>
+            <h2>Create New Goal</h2>
+            <div class="form-group">
+                <label>Goal Name:</label>
+                <input type="text" id="goalName" placeholder="e.g., New PC Build">
+            </div>
+            <div class="form-group">
+                <label>Description (optional):</label>
+                <textarea id="goalDescription" rows="3" placeholder="Describe your goal..."></textarea>
+            </div>
+            <button id="saveGoalBtn" class="btn btn-primary">Create Goal</button>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
+

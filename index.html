@@ -94,12 +94,15 @@
                     <input type="text" id="detailTitle">
                 </div>
                 <div class="form-group">
-                    <label>Price ($):</label>
+                    <label>Price (€):</label>
                     <input type="number" id="detailPrice" step="0.01">
                 </div>
                 <div class="form-group">
                     <label>Image URL:</label>
-                    <input type="url" id="detailImageUrl">
+                    <input type="url" id="detailImageUrl" oninput="updateImagePreview(this.value)">
+                    <div id="imagePreview" style="margin-top: 10px; display: none;">
+                        <img id="previewImage" src="" alt="Preview" style="max-width: 300px; max-height: 300px; border-radius: 8px; border: 1px solid var(--border);">
+                    </div>
                 </div>
                 <div class="form-group">
                     <label>Specifications (one per line):</label>

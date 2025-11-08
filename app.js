@@ -365,18 +365,95 @@ async function scrapeProduct() {
     statusEl.textContent = 'Scraping product information...';
 
     try {
-        // Fetch webpage HTML using CORS proxy
+        // Try multiple CORS proxies as fallback
+        const proxies = [
+            `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+            `https://corsproxy.io/?${encodeURIComponent(url)}`,
+            `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`
+        ];
+
+        let html = null;
+        let htmlError = null;
+
         statusEl.textContent = 'Fetching webpage...';
-        const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
-        const htmlResponse = await fetch(proxyUrl);
         
-        if (!htmlResponse.ok) {
-            throw new Error('Failed to fetch webpage');
+        // Try each proxy until one works
+        for (const proxyUrl of proxies) {
+            try {
+                const htmlResponse = await fetch(proxyUrl, {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+                    }
+                });
+                
+                if (htmlResponse.ok) {
+                    html = await htmlResponse.text();
+                    if (html && html.length > 100) {
+                        break; // Success, exit loop
+                    }
+                }
+            } catch (err) {
+                htmlError = err;
+                continue; // Try next proxy
+            }
         }
 
-        const html = await htmlResponse.text();
-        
-        // Extract text content (simplified)
+        // If all proxies failed, try using Gemini with just the URL
+        if (!html || html.length < 100) {
+            statusEl.textContent = 'Using AI to analyze URL directly...';
+            
+            // Fallback: Ask Gemini to extract info from URL directly
+            const prompt = `Extract product information from this URL: ${url}
+
+Based on the URL and your knowledge, return ONLY a valid JSON object with this exact structure:
+{
+  "product_title": "string",
+  "price": number (numeric value only, no currency symbols, or null if unknown),
+  "main_image_url": "string (full URL or null)",
+  "list_of_specifications": ["string", "string", ...],
+  "suggested_category": "string (one word category like Tech, Home, Apparel, etc.)"
+}
+
+If you cannot determine certain information from the URL, use null for that field. Price should be a number or null.`;
+
+            const responseText = await callGeminiAPI(prompt);
+            
+            // Extract JSON from response
+            let jsonText = responseText.trim();
+            if (jsonText.startsWith('```json')) {
+                jsonText = jsonText.replace(/```json\n?/g, '').replace(/```\n?/g, '');
+            } else if (jsonText.startsWith('```')) {
+                jsonText = jsonText.replace(/```\n?/g, '');
+            }
+            
+            // Try to extract JSON from the response
+            const jsonMatch = jsonText.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                jsonText = jsonMatch[0];
+            }
+
+            const product = JSON.parse(jsonText);
+            
+            // Pre-fill the item details form
+            document.getElementById('detailTitle').value = product.product_title || '';
+            document.getElementById('detailPrice').value = product.price || '';
+            document.getElementById('detailImageUrl').value = product.main_image_url || '';
+            document.getElementById('detailSpecs').value = Array.isArray(product.list_of_specifications) 
+                ? product.list_of_specifications.join('\n')
+                : product.list_of_specifications || '';
+            document.getElementById('detailCategory').value = product.suggested_category || '';
+
+            // Show the item details form
+            document.getElementById('itemDetailsForm').classList.remove('hidden');
+            document.getElementById('productUrl').value = '';
+
+            statusEl.className = 'status-message success';
+            statusEl.textContent = 'Product information extracted! Please review and save.';
+            return;
+        }
+
+        // Extract text content from HTML
         const textContent = html
             .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
             .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
@@ -384,10 +461,14 @@ async function scrapeProduct() {
             .replace(/\s+/g, ' ')
             .substring(0, 50000); // Limit to 50k chars
 
+        if (textContent.length < 100) {
+            throw new Error('Could not extract meaningful content from webpage');
+        }
+
         statusEl.textContent = 'Analyzing with AI...';
 
         // Call Gemini API to extract product information
-        const prompt = `Extract product information from the following webpage content. Return ONLY a valid JSON object with this exact structure:
+        const prompt = `Extract product information from the following webpage content. Return ONLY a valid JSON object with this exact structure (no markdown, no code blocks, just pure JSON):
 {
   "product_title": "string",
   "price": number (numeric value only, no currency symbols),
@@ -398,21 +479,36 @@ async function scrapeProduct() {
 
 Webpage URL: ${url}
 Webpage content:
-${textContent}
+${textContent.substring(0, 40000)}
 
-If you cannot find certain information, use null for that field. Price should be a number only.`;
+If you cannot find certain information, use null for that field. Price should be a number only. Return ONLY the JSON object, nothing else.`;
 
         const responseText = await callGeminiAPI(prompt);
 
-        // Extract JSON from response (handle markdown code blocks)
+        // Extract JSON from response (handle markdown code blocks and other formats)
         let jsonText = responseText.trim();
-        if (jsonText.startsWith('```json')) {
+        
+        // Remove markdown code blocks
+        if (jsonText.includes('```json')) {
             jsonText = jsonText.replace(/```json\n?/g, '').replace(/```\n?/g, '');
-        } else if (jsonText.startsWith('```')) {
+        } else if (jsonText.includes('```')) {
             jsonText = jsonText.replace(/```\n?/g, '');
         }
+        
+        // Try to extract JSON object if it's embedded in text
+        const jsonMatch = jsonText.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+            jsonText = jsonMatch[0];
+        }
 
-        const product = JSON.parse(jsonText);
+        let product;
+        try {
+            product = JSON.parse(jsonText);
+        } catch (parseError) {
+            // If JSON parsing fails, try to fix common issues
+            jsonText = jsonText.replace(/,\s*}/g, '}').replace(/,\s*]/g, ']');
+            product = JSON.parse(jsonText);
+        }
 
         // Validate and clean the data
         if (!product.product_title) {
@@ -443,7 +539,15 @@ If you cannot find certain information, use null for that field. Price should be
     } catch (error) {
         console.error('Error scraping product:', error);
         statusEl.className = 'status-message error';
-        statusEl.textContent = 'Error scraping product. Please try manual entry.';
+        
+        // Show more specific error message
+        let errorMsg = 'Error scraping product. ';
+        if (error.message) {
+            errorMsg += error.message;
+        } else {
+            errorMsg += 'Please try manual entry or check the browser console for details.';
+        }
+        statusEl.textContent = errorMsg;
     }
 }
 

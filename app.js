@@ -49,8 +49,8 @@ let currentEditingItem = null;
 
 // Initialize app
 document.addEventListener('DOMContentLoaded', async () => {
-    await initializeApp();
     setupEventListeners();
+    await initializeApp();
     await loadData();
 });
 
@@ -93,6 +93,11 @@ function updateAuthUI() {
     const logoutBtn = document.getElementById('logoutBtn');
     const loginForm = document.getElementById('loginForm');
     
+    // Check if elements exist (might not be loaded yet)
+    if (!userEmailEl || !showLoginBtn || !logoutBtn || !loginForm) {
+        return;
+    }
+    
     if (currentUser) {
         if (currentUser.email) {
             userEmailEl.textContent = `Logged in as: ${currentUser.email}`;
@@ -108,6 +113,7 @@ function updateAuthUI() {
         userEmailEl.textContent = '';
         logoutBtn.style.display = 'none';
         showLoginBtn.style.display = 'inline-block';
+        loginForm.style.display = 'none';
     }
 }
 
@@ -172,6 +178,10 @@ async function signup() {
 }
 
 async function logout() {
+    if (!confirm('Are you sure you want to logout? You can still use the app anonymously, but your data won\'t sync across devices.')) {
+        return;
+    }
+    
     const { error } = await supabase.auth.signOut();
     if (error) {
         alert('Logout failed: ' + error.message);
@@ -179,7 +189,11 @@ async function logout() {
         currentUser = null;
         updateAuthUI();
         // Create anonymous session as fallback
-        await supabase.auth.signInAnonymously();
+        const { data, error: anonError } = await supabase.auth.signInAnonymously();
+        if (!anonError && data) {
+            currentUser = data.user;
+            updateAuthUI();
+        }
         showStatus('Logged out successfully', 'success');
         await loadData();
     }
@@ -220,16 +234,58 @@ function setupEventListeners() {
     document.getElementById('calculateWhatIf').addEventListener('click', calculateWhatIf);
     document.getElementById('calculateSavings').addEventListener('click', calculateSavings);
     
-    // Authentication
-    document.getElementById('showLoginBtn').addEventListener('click', () => {
-        document.getElementById('loginForm').style.display = 'block';
-    });
-    document.getElementById('cancelAuthBtn').addEventListener('click', () => {
-        document.getElementById('loginForm').style.display = 'none';
-    });
-    document.getElementById('loginBtn').addEventListener('click', login);
-    document.getElementById('signupBtn').addEventListener('click', signup);
-    document.getElementById('logoutBtn').addEventListener('click', logout);
+    // Authentication - check if elements exist before adding listeners
+    const showLoginBtn = document.getElementById('showLoginBtn');
+    const cancelAuthBtn = document.getElementById('cancelAuthBtn');
+    const loginBtn = document.getElementById('loginBtn');
+    const signupBtn = document.getElementById('signupBtn');
+    const logoutBtn = document.getElementById('logoutBtn');
+    
+    if (showLoginBtn) {
+        showLoginBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const loginForm = document.getElementById('loginForm');
+            if (loginForm) {
+                loginForm.style.display = 'block';
+            }
+        });
+    }
+    
+    if (cancelAuthBtn) {
+        cancelAuthBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const loginForm = document.getElementById('loginForm');
+            if (loginForm) {
+                loginForm.style.display = 'none';
+            }
+        });
+    }
+    
+    if (loginBtn) {
+        loginBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            login();
+        });
+    }
+    
+    if (signupBtn) {
+        signupBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            signup();
+        });
+    }
+    
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            logout();
+        });
+    }
 
     // Modal close
     document.querySelectorAll('.close-modal').forEach(btn => {

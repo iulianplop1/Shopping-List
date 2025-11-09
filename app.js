@@ -62,15 +62,22 @@ async function initializeApp() {
         currentUser = session.user;
         updateAuthUI();
     } else {
-        // Try to create anonymous user as fallback
-        const { data, error } = await supabase.auth.signInAnonymously();
-        if (error) {
-            console.error('Error creating anonymous session:', error);
-            // Don't show alert, just let them login manually
-        } else {
-            currentUser = data.user;
-            updateAuthUI();
-        }
+        // Don't automatically create anonymous user - let user choose to login/signup first
+        // Only create anonymous session after a delay if user hasn't interacted
+        setTimeout(async () => {
+            // Only create anonymous session if user still hasn't logged in
+            if (!currentUser) {
+                const { data: { session: currentSession } } = await supabase.auth.getSession();
+                if (!currentSession) {
+                    const { data, error } = await supabase.auth.signInAnonymously();
+                    if (!error && data) {
+                        currentUser = data.user;
+                        updateAuthUI();
+                        await loadData();
+                    }
+                }
+            }
+        }, 2000); // Wait 2 seconds before creating anonymous session
     }
     
     // Listen for auth changes
@@ -188,14 +195,30 @@ async function logout() {
     } else {
         currentUser = null;
         updateAuthUI();
-        // Create anonymous session as fallback
-        const { data, error: anonError } = await supabase.auth.signInAnonymously();
-        if (!anonError && data) {
-            currentUser = data.user;
-            updateAuthUI();
-        }
+        // Don't automatically create anonymous session - let user choose
+        // They can continue using the app or login/signup
         showStatus('Logged out successfully', 'success');
+        // Clear data since we're logged out
+        items = [];
+        goals = [];
+        financialProfile = null;
+        renderWishlist();
+        renderLists();
+        renderGoals();
+    }
+}
+
+// Function to continue as anonymous (called when user wants to skip login)
+async function continueAsAnonymous() {
+    const { data, error } = await supabase.auth.signInAnonymously();
+    if (error) {
+        console.error('Error creating anonymous session:', error);
+        alert('Error creating anonymous session. Some features may not work.');
+    } else {
+        currentUser = data.user;
+        updateAuthUI();
         await loadData();
+        showStatus('Using anonymous session', 'info');
     }
 }
 
@@ -260,6 +283,19 @@ function setupEventListeners() {
             if (loginForm) {
                 loginForm.style.display = 'none';
             }
+        });
+    }
+    
+    const continueAnonymousBtn = document.getElementById('continueAnonymousBtn');
+    if (continueAnonymousBtn) {
+        continueAnonymousBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const loginForm = document.getElementById('loginForm');
+            if (loginForm) {
+                loginForm.style.display = 'none';
+            }
+            continueAsAnonymous();
         });
     }
     

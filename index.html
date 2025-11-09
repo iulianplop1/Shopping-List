@@ -16,13 +16,17 @@
             <div id="authSection" style="margin-top: 16px;">
                 <div id="loginForm" class="auth-form" style="display: none; max-width: 400px; margin: 0 auto; padding: 16px; background: var(--surface); border-radius: 8px; border: 1px solid var(--border);">
                     <h3 style="margin-bottom: 12px; text-align: center;">Login / Sign Up</h3>
+                    <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 12px; text-align: center;">Sign up to sync your data across all devices</p>
                     <input type="email" id="loginEmail" placeholder="Email" style="padding: 8px; margin: 4px 0; border-radius: 6px; border: 1px solid var(--border); width: 100%; box-sizing: border-box;">
                     <input type="password" id="loginPassword" placeholder="Password" style="padding: 8px; margin: 4px 0; border-radius: 6px; border: 1px solid var(--border); width: 100%; box-sizing: border-box;">
                     <div style="display: flex; gap: 8px; margin-top: 8px;">
                         <button id="loginBtn" class="btn btn-primary" style="padding: 8px 16px; margin: 0; flex: 1;">Login</button>
                         <button id="signupBtn" class="btn btn-secondary" style="padding: 8px 16px; margin: 0; flex: 1;">Sign Up</button>
                     </div>
-                    <button id="cancelAuthBtn" class="btn btn-secondary" style="padding: 8px 16px; margin: 8px 0 0 0; width: 100%;">Cancel</button>
+                    <div style="display: flex; gap: 8px; margin-top: 8px;">
+                        <button id="cancelAuthBtn" class="btn btn-secondary" style="padding: 8px 16px; margin: 0; flex: 1;">Cancel</button>
+                        <button id="continueAnonymousBtn" class="btn btn-secondary" style="padding: 8px 16px; margin: 0; flex: 1;">Continue as Guest</button>
+                    </div>
                 </div>
                 <div id="authStatus" style="text-align: center;">
                     <div style="margin-bottom: 8px;">

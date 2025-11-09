@@ -151,6 +151,7 @@ async function loadData() {
     updateGoalSelects();
     updateCategoryFilter();
     updateListSelectors();
+    renderLists();
     renderWishlist();
 }
 
@@ -191,6 +192,130 @@ function updateListSelectors() {
             option.value = list;
             filterListOptions.appendChild(option);
         });
+    }
+}
+
+// Lists Management
+function renderLists() {
+    const listsListEl = document.getElementById('listsList');
+    if (!listsListEl) return;
+    
+    listsListEl.innerHTML = '';
+    
+    const existingLists = [...new Set(items.map(item => item.list_name).filter(l => l))];
+    
+    if (existingLists.length === 0) {
+        listsListEl.innerHTML = '<p style="color: var(--text-secondary); padding: 16px; text-align: center;">No lists yet. Create lists by adding items to them.</p>';
+        return;
+    }
+    
+    existingLists.sort().forEach(listName => {
+        const listItems = items.filter(item => item.list_name === listName);
+        const totalPrice = listItems.reduce((sum, item) => sum + (item.price || 0), 0);
+        const totalHours = calculateHoursToAfford(totalPrice);
+        
+        const listBadge = document.createElement('div');
+        listBadge.className = 'goal-badge';
+        listBadge.style.cssText = 'display: flex; justify-content: space-between; align-items: center;';
+        listBadge.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 12px; flex: 1; cursor: pointer;" class="list-name-container">
+                <span>📋 ${escapeHtml(listName)}</span>
+                <span class="goal-stats">${listItems.length} items • €${totalPrice.toFixed(2)} • ${totalHours.toFixed(1)}h</span>
+            </div>
+            <button class="btn btn-danger delete-list-btn" style="padding: 4px 12px; font-size: 0.85rem; margin-left: 8px;" data-list="${escapeHtml(listName)}">Delete</button>
+        `;
+        
+        // Click to view list
+        const nameContainer = listBadge.querySelector('.list-name-container');
+        nameContainer.addEventListener('click', () => {
+            document.getElementById('viewList').value = listName;
+            renderWishlist();
+        });
+        
+        // Delete button
+        const deleteBtn = listBadge.querySelector('.delete-list-btn');
+        deleteBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            deleteList(listName);
+        });
+        
+        listsListEl.appendChild(listBadge);
+    });
+}
+
+async function deleteList(listName) {
+    if (!listName) return;
+    
+    const listItems = items.filter(item => item.list_name === listName);
+    const itemCount = listItems.length;
+    
+    if (itemCount === 0) {
+        renderLists();
+        updateListSelectors();
+        renderWishlist();
+        return;
+    }
+    
+    // First ask what they want to do
+    const choice = confirm(
+        `Delete list "${listName}"?\n\n` +
+        `This list has ${itemCount} item(s).\n\n` +
+        `OK - Remove list name from items (keep items)\n` +
+        `Cancel - Choose another option`
+    );
+    
+    if (choice) {
+        // Remove list name from items (keep items)
+        const { error } = await supabase
+            .from('items')
+            .update({ list_name: null })
+            .eq('user_id', currentUser.id)
+            .eq('list_name', listName);
+        
+        if (error) {
+            console.error('Error removing list:', error);
+            alert('Error removing list');
+        } else {
+            // Update local items
+            items.forEach(item => {
+                if (item.list_name === listName) {
+                    item.list_name = null;
+                }
+            });
+            
+            renderLists();
+            updateListSelectors();
+            renderWishlist();
+            showStatus(`List "${listName}" removed from items`, 'success');
+        }
+    } else {
+        // Ask if they want to delete all items
+        const deleteItems = confirm(
+            `Delete all ${itemCount} item(s) in "${listName}"?\n\n` +
+            `This will permanently delete all items in this list.\n\n` +
+            `This cannot be undone!`
+        );
+        
+        if (deleteItems) {
+            const itemIds = listItems.map(item => item.id);
+            const { error } = await supabase
+                .from('items')
+                .delete()
+                .in('id', itemIds);
+            
+            if (error) {
+                console.error('Error deleting items:', error);
+                alert('Error deleting items');
+            } else {
+                // Remove from local items
+                items = items.filter(item => item.list_name !== listName);
+                
+                renderLists();
+                updateListSelectors();
+                renderWishlist();
+                showStatus(`List "${listName}" and all its items deleted`, 'success');
+            }
+        }
     }
 }
 
@@ -995,6 +1120,7 @@ async function saveItem() {
         cancelItemForm();
         updateCategoryFilter();
         updateListSelectors();
+        renderLists();
         renderWishlist();
         showStatus('Item saved successfully!', 'success');
     }
@@ -1381,6 +1507,7 @@ async function deleteItem(itemId) {
         items = items.filter(item => item.id !== itemId);
         updateCategoryFilter();
         updateListSelectors();
+        renderLists();
         renderWishlist();
         showStatus('Item deleted successfully!', 'success');
     }

@@ -1714,7 +1714,7 @@ async function checkItemPrice(item) {
         
         if (!isFileProtocol) {
             try {
-                const supabaseProjectUrl = supabase.supabaseUrl || window.location.origin;
+                const supabaseProjectUrl = supabase.supabaseUrl;
                 const edgeFunctionUrl = `${supabaseProjectUrl}/functions/v1/scrape-product`;
                 
                 const session = await supabase.auth.getSession();
@@ -1732,61 +1732,57 @@ async function checkItemPrice(item) {
                     if (result.success && result.product && result.product.price) {
                         const newPrice = parseFloat(result.product.price);
                         if (!isNaN(newPrice) && newPrice > 0) {
-                        await updateItemPrice(item.id, newPrice);
-                        console.log(`✓ Price updated for ${item.title}: €${newPrice.toFixed(2)} (original: €${(item.price || 0).toFixed(2)})`);
-                        return;
+                            await updateItemPrice(item.id, newPrice);
+                            console.log(`✓ Price updated via Edge Function for ${item.title}: €${newPrice.toFixed(2)} (original: €${(item.price || 0).toFixed(2)})`);
+                            return;
                         }
                     }
+                } else {
+                    console.log(`Edge function returned status ${response.status}, trying Gemini API...`);
                 }
             } catch (edgeError) {
-                console.log('Edge function failed, trying direct scraping...', edgeError);
+                console.log('Edge function failed, trying Gemini API...', edgeError.message || edgeError);
             }
         } else {
-            console.log('Skipping edge function (file:// protocol detected), using direct scraping...');
+            console.log('Skipping edge function (file:// protocol detected), using Gemini API directly...');
         }
         
-        // Fallback: Try direct scraping with CORS proxies
-        const proxies = [
-            `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-            `https://corsproxy.io/?${encodeURIComponent(url)}`,
-            `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`
-        ];
+        // Use Gemini API directly - it can access websites without needing CORS proxies
+        // This is more reliable than CORS proxies which often fail
+        console.log(`Using Gemini API to extract price from: ${url}`);
+        const prompt = `Extract the current price from this product URL: ${url}
+
+IMPORTANT INSTRUCTIONS:
+1. Visit the URL and find the current price of the product
+2. Look for price information in formats like: "€XX.XX", "EUR XX.XX", "DKK XXX" (Danish krone), "$XX.XX" (USD), "£XX.XX" (GBP)
+3. For Danish sites (power.dk, elgiganten.dk, etc.), prices are usually in DKK (Danish krone)
+4. Convert to EUR using: 1 EUR = 7.5 DKK (approximately)
+5. For USD: 1 EUR = 1.1 USD (approximately)
+6. For GBP: 1 EUR = 0.85 GBP (approximately)
+7. Extract ONLY the current/active price, not crossed-out prices or old prices
+8. If the product has multiple prices (regular, sale, etc.), use the lowest/current active price
+
+Return ONLY a JSON object with this exact format (no markdown, no code blocks, just pure JSON):
+{
+  "price": number (numeric value in EUR, or null if price cannot be found)
+}
+
+Example for a product priced at 7,499 DKK: {"price": 999.87} (7499 / 7.5 = 999.87 EUR)
+Example for a product priced at €99.99: {"price": 99.99}
+Example if price not found: {"price": null}`;
         
-        let html = null;
-        for (const proxyUrl of proxies) {
-            try {
-                const htmlResponse = await fetch(proxyUrl, {
-                    method: 'GET',
-                    headers: {
-                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
-                    }
-                });
-                
-                if (htmlResponse.ok) {
-                    const htmlText = await htmlResponse.text();
-                    if (htmlText && htmlText.length > 100) {
-                        html = htmlText;
-                        break;
-                    }
-                }
-            } catch (err) {
-                continue;
-            }
-        }
-        
-        if (!html) {
-            // If all proxies failed, try using Gemini with just the URL
-            const prompt = `Extract the current price from this product URL: ${url}\n\nReturn ONLY a JSON object with this format:\n{\n  "price": number (numeric value in EUR, convert from other currencies if needed)\n}\n\nIMPORTANT: Convert the price to EUR if it's in another currency. Common conversions: 1 EUR ≈ 7.5 DKK, 1 EUR ≈ 1.1 USD, 1 EUR ≈ 0.85 GBP. If you cannot find the price, return {"price": null}.`;
-            
+        try {
             const responseText = await callGeminiAPI(prompt);
             let jsonText = responseText.trim();
             
+            // Clean up JSON response
             if (jsonText.includes('```json')) {
                 jsonText = jsonText.replace(/```json\n?/g, '').replace(/```\n?/g, '');
             } else if (jsonText.includes('```')) {
                 jsonText = jsonText.replace(/```\n?/g, '');
             }
             
+            // Extract JSON object
             const jsonMatch = jsonText.match(/\{[\s\S]*\}/);
             if (jsonMatch) {
                 jsonText = jsonMatch[0];
@@ -1799,44 +1795,12 @@ async function checkItemPrice(item) {
                 await updateItemPrice(item.id, newPrice);
                 return;
             } else {
-                console.log(`✗ No valid price found for ${item.title} (URL-only method)`);
+                console.log(`✗ No valid price found for ${item.title} - Gemini returned: ${JSON.stringify(product)}`);
                 throw new Error(`Could not extract price for ${item.title}`);
             }
-        } else {
-            // Extract text content from HTML
-            const textContent = html
-                .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-                .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-                .replace(/<[^>]+>/g, ' ')
-                .replace(/\s+/g, ' ')
-                .substring(0, 50000);
-            
-            const prompt = `Extract the current price from this webpage content:\n\n${textContent}\n\nReturn ONLY a JSON object with this format:\n{\n  "price": number (numeric value in EUR, convert from other currencies if needed)\n}\n\nIMPORTANT: Extract the actual current price. Look for price patterns like "€", "EUR", "$", "USD", "DKK", "kr", "£", "GBP", etc. Convert to EUR if needed (1 EUR ≈ 7.5 DKK, 1 EUR ≈ 1.1 USD, 1 EUR ≈ 0.85 GBP). If you cannot find the price, return {"price": null}.`;
-            
-            const responseText = await callGeminiAPI(prompt);
-            let jsonText = responseText.trim();
-            
-            if (jsonText.includes('```json')) {
-                jsonText = jsonText.replace(/```json\n?/g, '').replace(/```\n?/g, '');
-            } else if (jsonText.includes('```')) {
-                jsonText = jsonText.replace(/```\n?/g, '');
-            }
-            
-            const jsonMatch = jsonText.match(/\{[\s\S]*\}/);
-            if (jsonMatch) {
-                jsonText = jsonMatch[0];
-            }
-            
-            const product = JSON.parse(jsonText);
-            if (product.price && !isNaN(product.price) && product.price > 0) {
-                const newPrice = parseFloat(product.price);
-                console.log(`✓ Price extracted for ${item.title}: €${newPrice.toFixed(2)} (original: €${(item.price || 0).toFixed(2)})`);
-                await updateItemPrice(item.id, newPrice);
-                return;
-            } else {
-                console.log(`✗ No valid price found for ${item.title} (HTML scraping method)`);
-                throw new Error(`Could not extract price for ${item.title}`);
-            }
+        } catch (parseError) {
+            console.error(`Error parsing Gemini response for ${item.title}:`, parseError);
+            throw new Error(`Failed to parse price data for ${item.title}`);
         }
     } catch (error) {
         console.error(`Error checking price for item ${item.id} (${item.title}):`, error.message || error);

@@ -13,6 +13,20 @@
         <header class="header">
             <h1>✨ Smart Wishlist Planner</h1>
             <p class="subtitle">Plan your purchases intelligently</p>
+            <div id="authSection" style="margin-top: 16px;">
+                <div id="loginForm" class="auth-form" style="display: none;">
+                    <input type="email" id="loginEmail" placeholder="Email" style="padding: 8px; margin: 4px; border-radius: 6px; border: 1px solid var(--border);">
+                    <input type="password" id="loginPassword" placeholder="Password" style="padding: 8px; margin: 4px; border-radius: 6px; border: 1px solid var(--border);">
+                    <button id="loginBtn" class="btn btn-primary" style="padding: 8px 16px; margin: 4px;">Login</button>
+                    <button id="signupBtn" class="btn btn-secondary" style="padding: 8px 16px; margin: 4px;">Sign Up</button>
+                    <button id="cancelAuthBtn" class="btn btn-secondary" style="padding: 8px 16px; margin: 4px;">Cancel</button>
+                </div>
+                <div id="authStatus" style="text-align: center;">
+                    <span id="userEmail" style="color: var(--text-secondary); font-size: 0.9rem;"></span>
+                    <button id="showLoginBtn" class="btn btn-secondary" style="padding: 6px 12px; margin: 4px; font-size: 0.85rem;">Login/Sign Up</button>
+                    <button id="logoutBtn" class="btn btn-secondary" style="padding: 6px 12px; margin: 4px; font-size: 0.85rem; display: none;">Logout</button>
+                </div>
+            </div>
         </header>
 
         <!-- Financial Profile Section -->

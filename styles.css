@@ -31,6 +31,45 @@ body {
     padding: 20px;
 }
 
+/* Mobile responsiveness */
+@media (max-width: 768px) {
+    body {
+        padding: 10px;
+    }
+    
+    .container {
+        max-width: 100%;
+    }
+    
+    .header h1 {
+        font-size: 1.8rem;
+    }
+    
+    .filters-row {
+        flex-direction: column;
+        gap: 12px;
+    }
+    
+    .form-row {
+        flex-direction: column;
+    }
+    
+    .wishlist-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .auth-form {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+    
+    .auth-form input,
+    .auth-form button {
+        width: 100%;
+    }
+}
+
 .container {
     max-width: 1200px;
     margin: 0 auto;

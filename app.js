@@ -60,20 +60,128 @@ async function initializeApp() {
     const { data: { session } } = await supabase.auth.getSession();
     if (session) {
         currentUser = session.user;
+        updateAuthUI();
     } else {
-        // Create anonymous user
+        // Try to create anonymous user as fallback
         const { data, error } = await supabase.auth.signInAnonymously();
         if (error) {
             console.error('Error creating anonymous session:', error);
-            // Show user-friendly error message
-            if (error.message && error.message.includes('Anonymous sign-ins are disabled')) {
-                alert('⚠️ Anonymous sign-ins are disabled in Supabase.\n\nPlease enable it:\n1. Go to Supabase Dashboard\n2. Authentication → Providers\n3. Enable "Anonymous" sign-ins\n4. Refresh this page');
-            } else {
-                alert('⚠️ Authentication error. Some features may not work. Please check your Supabase settings.');
-            }
+            // Don't show alert, just let them login manually
         } else {
             currentUser = data.user;
+            updateAuthUI();
         }
+    }
+    
+    // Listen for auth changes
+    supabase.auth.onAuthStateChange((event, session) => {
+        if (session) {
+            currentUser = session.user;
+            updateAuthUI();
+            loadData(); // Reload data when user changes
+        } else {
+            currentUser = null;
+            updateAuthUI();
+        }
+    });
+}
+
+// Update authentication UI
+function updateAuthUI() {
+    const userEmailEl = document.getElementById('userEmail');
+    const showLoginBtn = document.getElementById('showLoginBtn');
+    const logoutBtn = document.getElementById('logoutBtn');
+    const loginForm = document.getElementById('loginForm');
+    
+    if (currentUser) {
+        if (currentUser.email) {
+            userEmailEl.textContent = `Logged in as: ${currentUser.email}`;
+            logoutBtn.style.display = 'inline-block';
+            showLoginBtn.style.display = 'none';
+        } else {
+            userEmailEl.textContent = 'Using anonymous session (data not synced across devices)';
+            logoutBtn.style.display = 'inline-block';
+            showLoginBtn.style.display = 'none';
+        }
+        loginForm.style.display = 'none';
+    } else {
+        userEmailEl.textContent = '';
+        logoutBtn.style.display = 'none';
+        showLoginBtn.style.display = 'inline-block';
+    }
+}
+
+// Authentication functions
+async function login() {
+    const email = document.getElementById('loginEmail').value.trim();
+    const password = document.getElementById('loginPassword').value.trim();
+    
+    if (!email || !password) {
+        alert('Please enter both email and password');
+        return;
+    }
+    
+    const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password
+    });
+    
+    if (error) {
+        alert('Login failed: ' + error.message);
+    } else {
+        currentUser = data.user;
+        updateAuthUI();
+        document.getElementById('loginForm').style.display = 'none';
+        document.getElementById('loginEmail').value = '';
+        document.getElementById('loginPassword').value = '';
+        showStatus('Logged in successfully!', 'success');
+        await loadData();
+    }
+}
+
+async function signup() {
+    const email = document.getElementById('loginEmail').value.trim();
+    const password = document.getElementById('loginPassword').value.trim();
+    
+    if (!email || !password) {
+        alert('Please enter both email and password');
+        return;
+    }
+    
+    if (password.length < 6) {
+        alert('Password must be at least 6 characters');
+        return;
+    }
+    
+    const { data, error } = await supabase.auth.signUp({
+        email,
+        password
+    });
+    
+    if (error) {
+        alert('Sign up failed: ' + error.message);
+    } else {
+        alert('Account created! Please check your email to verify your account.');
+        currentUser = data.user;
+        updateAuthUI();
+        document.getElementById('loginForm').style.display = 'none';
+        document.getElementById('loginEmail').value = '';
+        document.getElementById('loginPassword').value = '';
+        showStatus('Account created! Check your email to verify.', 'success');
+    }
+}
+
+async function logout() {
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+        alert('Logout failed: ' + error.message);
+    } else {
+        currentUser = null;
+        updateAuthUI();
+        // Create anonymous session as fallback
+        await supabase.auth.signInAnonymously();
+        showStatus('Logged out successfully', 'success');
+        await loadData();
     }
 }
 
@@ -111,6 +219,17 @@ function setupEventListeners() {
     // What-if and savings
     document.getElementById('calculateWhatIf').addEventListener('click', calculateWhatIf);
     document.getElementById('calculateSavings').addEventListener('click', calculateSavings);
+    
+    // Authentication
+    document.getElementById('showLoginBtn').addEventListener('click', () => {
+        document.getElementById('loginForm').style.display = 'block';
+    });
+    document.getElementById('cancelAuthBtn').addEventListener('click', () => {
+        document.getElementById('loginForm').style.display = 'none';
+    });
+    document.getElementById('loginBtn').addEventListener('click', login);
+    document.getElementById('signupBtn').addEventListener('click', signup);
+    document.getElementById('logoutBtn').addEventListener('click', logout);
 
     // Modal close
     document.querySelectorAll('.close-modal').forEach(btn => {

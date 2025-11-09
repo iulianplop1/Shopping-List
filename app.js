@@ -47,6 +47,7 @@ let goals = [];
 let financialProfile = null;
 let currentEditingItem = null;
 let listBudgets = [];
+let showTrackedPrices = localStorage.getItem('showTrackedPrices') !== 'false'; // Default to true
 
 // Initialize app
 document.addEventListener('DOMContentLoaded', async () => {
@@ -257,6 +258,34 @@ function setupEventListeners() {
     
     // Price checking
     document.getElementById('checkPricesBtn').addEventListener('click', () => checkPricesDaily(true));
+    
+    // Toggle tracked prices display
+    const togglePricesBtn = document.getElementById('togglePricesBtn');
+    const togglePricesIcon = document.getElementById('togglePricesIcon');
+    const togglePricesText = document.getElementById('togglePricesText');
+    
+    // Update toggle button state
+    function updateToggleButtonState() {
+        if (showTrackedPrices) {
+            togglePricesIcon.textContent = '👁️';
+            togglePricesText.textContent = 'Hide Prices';
+            togglePricesBtn.title = 'Hide tracked prices';
+        } else {
+            togglePricesIcon.textContent = '🚫';
+            togglePricesText.textContent = 'Show Prices';
+            togglePricesBtn.title = 'Show tracked prices';
+        }
+    }
+    
+    togglePricesBtn.addEventListener('click', () => {
+        showTrackedPrices = !showTrackedPrices;
+        localStorage.setItem('showTrackedPrices', showTrackedPrices.toString());
+        updateToggleButtonState();
+        renderWishlist(); // Re-render to apply the change
+    });
+    
+    // Initialize toggle button state
+    updateToggleButtonState();
 
     // What-if and savings
     document.getElementById('calculateWhatIf').addEventListener('click', calculateWhatIf);
@@ -1939,7 +1968,7 @@ function createItemCard(item) {
             </div>
             <div class="item-price">
                 €${originalPrice.toFixed(2)}
-                ${priceDifference ? `
+                ${showTrackedPrices && priceDifference ? `
                     <span style="font-size: 0.75em; margin-left: 8px; color: ${currentPrice < originalPrice ? 'var(--success-color, #10b981)' : 'var(--danger-color)'};">
                         (€${currentPrice.toFixed(2)})
                     </span>
@@ -2046,7 +2075,7 @@ async function showItemDetails(item) {
         <h2>${escapeHtml(item.title)}</h2>
         <div class="item-price">
             €${originalPrice.toFixed(2)}
-            ${priceDifference ? `
+            ${showTrackedPrices && priceDifference ? `
                 <span style="font-size: 0.75em; margin-left: 8px; color: ${currentPrice < originalPrice ? 'var(--success-color, #10b981)' : 'var(--danger-color)'};">
                     (€${currentPrice.toFixed(2)})
                 </span>

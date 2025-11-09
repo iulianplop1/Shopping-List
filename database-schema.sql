@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS financial_profiles (
     income_type TEXT NOT NULL CHECK (income_type IN ('hourly', 'monthly', 'yearly')),
     income_amount DECIMAL(10, 2) NOT NULL,
     monthly_expenses DECIMAL(10, 2) NOT NULL,
+    days_per_month INTEGER DEFAULT 20 CHECK (days_per_month >= 1 AND days_per_month <= 31),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     UNIQUE(user_id)
@@ -39,6 +40,7 @@ CREATE TABLE IF NOT EXISTS items (
     priority TEXT NOT NULL DEFAULT 'medium' CHECK (priority IN ('low', 'medium', 'high')),
     tags TEXT[] DEFAULT '{}',
     goal_id UUID REFERENCES goals(id) ON DELETE SET NULL,
+    list_name TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -50,6 +52,7 @@ CREATE INDEX IF NOT EXISTS idx_items_user_id ON items(user_id);
 CREATE INDEX IF NOT EXISTS idx_items_goal_id ON items(goal_id);
 CREATE INDEX IF NOT EXISTS idx_items_category ON items(category);
 CREATE INDEX IF NOT EXISTS idx_items_priority ON items(priority);
+CREATE INDEX IF NOT EXISTS idx_items_list_name ON items(list_name);
 
 -- Enable Row Level Security (RLS)
 ALTER TABLE financial_profiles ENABLE ROW LEVEL SECURITY;

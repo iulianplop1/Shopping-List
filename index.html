@@ -35,6 +35,11 @@
                     <label>Monthly Expenses:</label>
                     <input type="number" id="monthlyExpenses" placeholder="e.g., 1500" step="0.01">
                 </div>
+                <div class="form-group">
+                    <label>Days per Month Worked:</label>
+                    <input type="number" id="daysPerMonth" placeholder="e.g., 20" min="1" max="31" step="1">
+                    <small style="color: var(--text-secondary); font-size: 0.85rem;">Number of days you work per month (default: 20)</small>
+                </div>
                 <button id="saveProfile" class="btn btn-primary">Save Profile</button>
             </div>
             <div id="profileSummary" class="profile-summary hidden"></div>
@@ -126,11 +131,22 @@
                     <label>Tags (comma-separated):</label>
                     <input type="text" id="detailTags" placeholder="tag1, tag2, tag3">
                 </div>
-                <div class="form-group">
-                    <label>Goal:</label>
-                    <select id="detailGoal">
-                        <option value="">No Goal</option>
-                    </select>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Goal:</label>
+                        <select id="detailGoal">
+                            <option value="">No Goal</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>List:</label>
+                        <select id="detailList">
+                            <option value="">No List</option>
+                            <option value="Grocery">Grocery</option>
+                            <option value="Christmas List">Christmas List</option>
+                            <option value="Temu List">Temu List</option>
+                        </select>
+                    </div>
                 </div>
                 <div class="form-actions">
                     <button id="saveItemBtn" class="btn btn-primary">Save Item</button>
@@ -173,6 +189,15 @@
                         <option value="low">Low</option>
                     </select>
                 </div>
+                <div class="form-group">
+                    <label>Filter by List:</label>
+                    <select id="filterList">
+                        <option value="">All Lists</option>
+                        <option value="Grocery">Grocery</option>
+                        <option value="Christmas List">Christmas List</option>
+                        <option value="Temu List">Temu List</option>
+                    </select>
+                </div>
             </div>
         </section>
 
@@ -180,7 +205,18 @@
         <section class="wishlist-section">
             <div class="section-header">
                 <h2>📋 Wishlist</h2>
-                <div id="wishlistStats" class="wishlist-stats"></div>
+                <div style="display: flex; align-items: center; gap: 16px;">
+                    <div class="form-group" style="margin: 0;">
+                        <label style="font-size: 0.9rem; margin-bottom: 4px;">View List:</label>
+                        <select id="viewList" style="padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface);">
+                            <option value="">All Lists</option>
+                            <option value="Grocery">Grocery</option>
+                            <option value="Christmas List">Christmas List</option>
+                            <option value="Temu List">Temu List</option>
+                        </select>
+                    </div>
+                    <div id="wishlistStats" class="wishlist-stats"></div>
+                </div>
             </div>
             <div id="wishlistItems" class="wishlist-grid"></div>
         </section>

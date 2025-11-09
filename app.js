@@ -102,6 +102,8 @@ function setupEventListeners() {
 
     // Filters and sorting
     document.getElementById('sortBy').addEventListener('change', renderWishlist);
+    document.getElementById('viewList').addEventListener('change', renderWishlist);
+    document.getElementById('filterList').addEventListener('change', renderWishlist);
     document.getElementById('filterCategory').addEventListener('change', renderWishlist);
     document.getElementById('filterGoal').addEventListener('change', renderWishlist);
     document.getElementById('filterPriority').addEventListener('change', renderWishlist);
@@ -148,7 +150,43 @@ async function loadData() {
     await loadItems();
     updateGoalSelects();
     updateCategoryFilter();
+    updateListSelectors();
     renderWishlist();
+}
+
+// Update list selectors with available lists
+function updateListSelectors() {
+    const lists = [...new Set(items.map(item => item.list_name).filter(l => l))];
+    const viewListSelect = document.getElementById('viewList');
+    const filterListSelect = document.getElementById('filterList');
+    
+    if (!viewListSelect || !filterListSelect) return;
+    
+    // Update viewList selector (keep "All Lists" option)
+    const currentViewValue = viewListSelect.value;
+    viewListSelect.innerHTML = '<option value="">All Lists</option>';
+    lists.forEach(list => {
+        const option = document.createElement('option');
+        option.value = list;
+        option.textContent = list;
+        viewListSelect.appendChild(option);
+    });
+    if (currentViewValue && lists.includes(currentViewValue)) {
+        viewListSelect.value = currentViewValue;
+    }
+    
+    // Update filterList selector (keep "All Lists" option)
+    const currentFilterValue = filterListSelect.value;
+    filterListSelect.innerHTML = '<option value="">All Lists</option>';
+    ['Grocery', 'Christmas List', 'Temu List'].forEach(list => {
+        const option = document.createElement('option');
+        option.value = list;
+        option.textContent = list;
+        filterListSelect.appendChild(option);
+    });
+    if (currentFilterValue) {
+        filterListSelect.value = currentFilterValue;
+    }
 }
 
 // Financial Profile
@@ -166,6 +204,7 @@ async function loadFinancialProfile() {
         document.getElementById('incomeType').value = data.income_type;
         document.getElementById('incomeAmount').value = data.income_amount;
         document.getElementById('monthlyExpenses').value = data.monthly_expenses;
+        document.getElementById('daysPerMonth').value = data.days_per_month || 20;
         updateProfileSummary();
     }
 }
@@ -176,9 +215,15 @@ async function saveFinancialProfile() {
     const incomeType = document.getElementById('incomeType').value;
     const incomeAmount = parseFloat(document.getElementById('incomeAmount').value);
     const monthlyExpenses = parseFloat(document.getElementById('monthlyExpenses').value);
+    const daysPerMonth = parseInt(document.getElementById('daysPerMonth').value) || 20;
 
     if (!incomeAmount || !monthlyExpenses) {
-        alert('Please fill in all fields');
+        alert('Please fill in all required fields');
+        return;
+    }
+
+    if (daysPerMonth < 1 || daysPerMonth > 31) {
+        alert('Days per month must be between 1 and 31');
         return;
     }
 
@@ -189,15 +234,69 @@ async function saveFinancialProfile() {
         monthly_expenses: monthlyExpenses
     };
 
-    const { data, error } = await supabase
+    // Only include days_per_month if the field exists (for backward compatibility)
+    // Try to add it, but if it fails, we'll handle it gracefully
+    try {
+        profileData.days_per_month = daysPerMonth;
+    } catch (e) {
+        // Field might not exist in database yet
+    }
+
+    // First try to update existing profile
+    const { data: existingData } = await supabase
         .from('financial_profiles')
-        .upsert(profileData, { onConflict: 'user_id' });
+        .select('id')
+        .eq('user_id', currentUser.id)
+        .maybeSingle();
+
+    let error;
+    if (existingData) {
+        // Update existing profile
+        const { data, err } = await supabase
+            .from('financial_profiles')
+            .update(profileData)
+            .eq('user_id', currentUser.id)
+            .select()
+            .single();
+        error = err;
+        if (data) {
+            financialProfile = data;
+        }
+    } else {
+        // Insert new profile
+        const { data, err } = await supabase
+            .from('financial_profiles')
+            .insert(profileData)
+            .select()
+            .single();
+        error = err;
+        if (data) {
+            financialProfile = data;
+        }
+    }
 
     if (error) {
         console.error('Error saving profile:', error);
-        alert('Error saving profile');
+        // Try without days_per_month if it fails
+        if (error.message && error.message.includes('days_per_month')) {
+            delete profileData.days_per_month;
+            const { data, err: retryError } = await supabase
+                .from('financial_profiles')
+                .upsert(profileData, { onConflict: 'user_id' })
+                .select()
+                .single();
+            if (retryError) {
+                alert('Error saving profile. Please run the migration SQL to add the days_per_month field.');
+                console.error('Retry error:', retryError);
+            } else {
+                financialProfile = { ...data, days_per_month: daysPerMonth };
+                updateProfileSummary();
+                showStatus('Profile saved (days_per_month field not available yet)', 'success');
+            }
+        } else {
+            alert('Error saving profile: ' + (error.message || 'Unknown error'));
+        }
     } else {
-        financialProfile = profileData;
         updateProfileSummary();
         showStatus('Profile saved successfully!', 'success');
     }
@@ -214,19 +313,22 @@ function updateProfileSummary() {
 
     summaryEl.innerHTML = `
         <h3>Your Financial Summary</h3>
-        <p><strong>Hourly Rate:</strong> $${hourlyRate.toFixed(2)}/hour</p>
-        <p><strong>Monthly Disposable Income:</strong> $${disposableIncome.toFixed(2)}</p>
+        <p><strong>Hourly Rate:</strong> €${hourlyRate.toFixed(2)}/hour</p>
+        <p><strong>Monthly Disposable Income:</strong> €${disposableIncome.toFixed(2)}</p>
     `;
 }
 
 function calculateHourlyRate() {
     if (!financialProfile) return 0;
 
-    const { income_type, income_amount } = financialProfile;
+    const { income_type, income_amount, days_per_month } = financialProfile;
+    const daysPerMonth = days_per_month || 20;
+    const hoursPerDay = 8; // Assuming 8 hours per day
+    const hoursPerMonth = daysPerMonth * hoursPerDay;
     
     if (income_type === 'hourly') return income_amount;
-    if (income_type === 'monthly') return income_amount / (40 * 4.33); // 40 hours/week * 4.33 weeks/month
-    if (income_type === 'yearly') return income_amount / (40 * 52); // 40 hours/week * 52 weeks/year
+    if (income_type === 'monthly') return income_amount / hoursPerMonth;
+    if (income_type === 'yearly') return income_amount / (hoursPerMonth * 12);
     
     return 0;
 }
@@ -234,11 +336,14 @@ function calculateHourlyRate() {
 function calculateDisposableIncome() {
     if (!financialProfile) return 0;
 
-    const { income_type, income_amount, monthly_expenses } = financialProfile;
+    const { income_type, income_amount, monthly_expenses, days_per_month } = financialProfile;
+    const daysPerMonth = days_per_month || 20;
+    const hoursPerDay = 8; // Assuming 8 hours per day
+    const hoursPerMonth = daysPerMonth * hoursPerDay;
     
     let monthlyIncome;
     if (income_type === 'hourly') {
-        monthlyIncome = income_amount * 40 * 4.33;
+        monthlyIncome = income_amount * hoursPerMonth;
     } else if (income_type === 'monthly') {
         monthlyIncome = income_amount;
     } else if (income_type === 'yearly') {
@@ -287,7 +392,7 @@ function renderGoals() {
         goalBadge.className = 'goal-badge';
         goalBadge.innerHTML = `
             <span>${goal.name}</span>
-            <span class="goal-stats">$${totalPrice.toFixed(2)} • ${totalHours.toFixed(1)}h</span>
+            <span class="goal-stats">€${totalPrice.toFixed(2)} • ${totalHours.toFixed(1)}h</span>
         `;
         goalBadge.addEventListener('click', () => {
             document.getElementById('filterGoal').value = goal.id;
@@ -298,7 +403,9 @@ function renderGoals() {
 }
 
 function showGoalModal() {
-    document.getElementById('goalModal').classList.add('show');
+    const modal = document.getElementById('goalModal');
+    modal.classList.remove('hidden');
+    modal.classList.add('show');
     document.getElementById('goalName').value = '';
     document.getElementById('goalDescription').value = '';
 }
@@ -499,13 +606,14 @@ If you cannot determine certain information from the URL, use null for that fiel
             
             // Pre-fill the item details form
             document.getElementById('detailTitle').value = product.product_title || '';
-            document.getElementById('detailPrice').value = product.price || '';
+            document.getElementById('detailPrice').value = product.price ? parseFloat(product.price).toFixed(2) : '';
             document.getElementById('detailImageUrl').value = imageUrl;
             updateImagePreview(imageUrl); // Show image preview
             document.getElementById('detailSpecs').value = Array.isArray(product.list_of_specifications) 
                 ? product.list_of_specifications.join('\n')
                 : product.list_of_specifications || '';
             document.getElementById('detailCategory').value = product.suggested_category || '';
+            document.getElementById('detailList').value = '';
             
             // Generate tags if not provided or empty
             let tagsValue = '';
@@ -596,12 +704,13 @@ If you cannot determine certain information from the URL, use null for that fiel
             
             // Pre-fill the item details form
             document.getElementById('detailTitle').value = product.product_title || '';
-            document.getElementById('detailPrice').value = product.price || '';
+            document.getElementById('detailPrice').value = product.price ? parseFloat(product.price).toFixed(2) : '';
             document.getElementById('detailImageUrl').value = product.main_image_url || '';
             document.getElementById('detailSpecs').value = Array.isArray(product.list_of_specifications) 
                 ? product.list_of_specifications.join('\n')
                 : product.list_of_specifications || '';
             document.getElementById('detailCategory').value = product.suggested_category || '';
+            document.getElementById('detailList').value = '';
 
             // Show the item details form
             document.getElementById('itemDetailsForm').classList.remove('hidden');
@@ -677,6 +786,9 @@ If you cannot find certain information, use null for that field. Price should be
         }
         if (typeof product.price !== 'number' || isNaN(product.price)) {
             product.price = 0;
+        } else {
+            // Ensure price is properly formatted
+            product.price = parseFloat(product.price.toFixed(2));
         }
         if (!Array.isArray(product.list_of_specifications)) {
             product.list_of_specifications = [];
@@ -742,13 +854,14 @@ If you cannot find certain information, use null for that field. Price should be
 
         // Pre-fill the item details form
         document.getElementById('detailTitle').value = product.product_title || '';
-        document.getElementById('detailPrice').value = product.price || '';
+        document.getElementById('detailPrice').value = product.price ? parseFloat(product.price).toFixed(2) : '';
         document.getElementById('detailImageUrl').value = imageUrl;
         updateImagePreview(imageUrl); // Show image preview
         document.getElementById('detailSpecs').value = Array.isArray(product.list_of_specifications) 
             ? product.list_of_specifications.join('\n')
             : product.list_of_specifications || '';
         document.getElementById('detailCategory').value = product.suggested_category || '';
+        document.getElementById('detailList').value = '';
         
         // Generate tags if not provided or empty
         let tagsValue = '';
@@ -808,6 +921,7 @@ function showManualItemForm() {
     document.getElementById('detailPriority').value = 'medium';
     document.getElementById('detailTags').value = '';
     document.getElementById('detailGoal').value = '';
+    document.getElementById('detailList').value = '';
     
     currentEditingItem = null;
     document.getElementById('itemDetailsForm').classList.remove('hidden');
@@ -824,22 +938,24 @@ async function saveItem() {
     const priority = document.getElementById('detailPriority').value;
     const tags = document.getElementById('detailTags').value.trim().split(',').map(t => t.trim()).filter(t => t);
     const goalId = document.getElementById('detailGoal').value || null;
+    const listName = document.getElementById('detailList').value.trim() || null;
 
-    if (!title || !price) {
-        alert('Please enter at least a title and price');
+    if (!title || isNaN(price) || price <= 0) {
+        alert('Please enter a valid title and price');
         return;
     }
 
     const itemData = {
         user_id: currentUser.id,
         title,
-        price,
+        price: parseFloat(price.toFixed(2)), // Ensure consistent price format
         image_url: imageUrl,
         specifications: specs,
         category: category || null,
         priority,
         tags,
-        goal_id: goalId
+        goal_id: goalId,
+        list_name: listName
     };
 
     let error;
@@ -873,6 +989,7 @@ async function saveItem() {
     } else {
         cancelItemForm();
         updateCategoryFilter();
+        updateListSelectors();
         renderWishlist();
         showStatus('Item saved successfully!', 'success');
     }
@@ -907,13 +1024,21 @@ function renderWishlist() {
 
     // Get filters
     const sortBy = document.getElementById('sortBy').value;
+    const viewList = document.getElementById('viewList').value; // Main list view selector
     const filterCategory = document.getElementById('filterCategory').value;
     const filterGoal = document.getElementById('filterGoal').value;
     const filterPriority = document.getElementById('filterPriority').value;
+    const filterList = document.getElementById('filterList').value;
 
-    // Filter items
+    // Filter items - viewList takes priority (shows only one list at a time)
     let filteredItems = [...items];
     
+    // If viewList is set, only show items from that list
+    if (viewList) {
+        filteredItems = filteredItems.filter(item => item.list_name === viewList);
+    }
+    
+    // Apply additional filters
     if (filterCategory) {
         filteredItems = filteredItems.filter(item => item.category === filterCategory);
     }
@@ -924,6 +1049,11 @@ function renderWishlist() {
     
     if (filterPriority) {
         filteredItems = filteredItems.filter(item => item.priority === filterPriority);
+    }
+    
+    // filterList is only used if viewList is not set
+    if (filterList && !viewList) {
+        filteredItems = filteredItems.filter(item => item.list_name === filterList);
     }
 
     // Sort items
@@ -970,6 +1100,7 @@ function createItemCard(item) {
             <div class="item-price">€${(item.price || 0).toFixed(2)}</div>
             <div class="item-hours">⏱️ ${hours.toFixed(1)} hours of work</div>
             ${item.category ? `<span class="item-category">${escapeHtml(item.category)}</span>` : ''}
+            ${item.list_name ? `<span class="item-list" style="display: inline-block; margin-top: 4px; padding: 2px 8px; background: var(--background); border-radius: 4px; font-size: 0.85rem; color: var(--text-secondary);">📋 ${escapeHtml(item.list_name)}</span>` : ''}
             <div class="item-actions">
                 <button class="btn btn-secondary view-item-btn" data-id="${item.id}">View Details</button>
                 <button class="btn btn-secondary find-alternatives-btn" data-id="${item.id}">Find Alternatives</button>
@@ -1009,7 +1140,7 @@ function updateWishlistStats(filteredItems) {
         </div>
         <div class="stat-item">
             <div class="stat-label">Total Price</div>
-            <div class="stat-value">$${totalPrice.toFixed(2)}</div>
+            <div class="stat-value">€${totalPrice.toFixed(2)}</div>
         </div>
         <div class="stat-item">
             <div class="stat-label">Total Hours</div>
@@ -1071,6 +1202,7 @@ async function showItemDetails(item) {
         ` : ''}
         
         ${item.category ? `<p><strong>Category:</strong> ${escapeHtml(item.category)}</p>` : ''}
+        ${item.list_name ? `<p><strong>List:</strong> ${escapeHtml(item.list_name)}</p>` : ''}
         ${item.tags && item.tags.length > 0 ? `<p><strong>Tags:</strong> ${item.tags.map(t => escapeHtml(t)).join(', ')}</p>` : ''}
     `;
     
@@ -1082,6 +1214,7 @@ async function showItemDetails(item) {
         });
     }
     
+    modal.classList.remove('hidden');
     modal.classList.add('show');
 }
 
@@ -1198,6 +1331,7 @@ Focus on finding products that are either cheaper alternatives or similar qualit
             </div>
         `;
         
+        modal.classList.remove('hidden');
         modal.classList.add('show');
         statusEl.textContent = '';
     } catch (error) {
@@ -1221,6 +1355,7 @@ function editItem(item) {
         ? item.tags.join(', ')
         : (item.tags || '');
     document.getElementById('detailGoal').value = item.goal_id || '';
+    document.getElementById('detailList').value = item.list_name || '';
     
     document.getElementById('itemDetailsForm').classList.remove('hidden');
     document.getElementById('itemDetailsForm').scrollIntoView({ behavior: 'smooth' });
@@ -1239,8 +1374,9 @@ async function deleteItem(itemId) {
         alert('Error deleting item');
     } else {
         items = items.filter(item => item.id !== itemId);
-        renderWishlist();
         updateCategoryFilter();
+        updateListSelectors();
+        renderWishlist();
         showStatus('Item deleted successfully!', 'success');
     }
 }
@@ -1248,6 +1384,7 @@ async function deleteItem(itemId) {
 function closeModals() {
     document.querySelectorAll('.modal').forEach(modal => {
         modal.classList.remove('show');
+        modal.classList.add('hidden');
     });
 }
 
@@ -1301,15 +1438,15 @@ async function calculateWhatIf() {
         <h3>Impact Analysis</h3>
         <div class="result-item">
             <strong>Hourly Rate:</strong>
-            <span>$${oldHourlyRate.toFixed(2)} → $${newHourlyRate.toFixed(2)}</span>
+            <span>€${oldHourlyRate.toFixed(2)} → €${newHourlyRate.toFixed(2)}</span>
         </div>
         <div class="result-item">
             <strong>Monthly Disposable Income:</strong>
-            <span>$${oldDisposable.toFixed(2)} → $${newDisposable.toFixed(2)}</span>
+            <span>€${oldDisposable.toFixed(2)} → €${newDisposable.toFixed(2)}</span>
         </div>
         <div class="result-item">
             <strong>Monthly Change:</strong>
-            <span>+$${(newDisposable - oldDisposable).toFixed(2)}</span>
+            <span>+€${(newDisposable - oldDisposable).toFixed(2)}</span>
         </div>
         ${goals.length > 0 ? `
             <h4 style="margin-top: 20px;">Goal Impact:</h4>
@@ -1330,21 +1467,27 @@ async function calculateWhatIf() {
 }
 
 function calculateHourlyRateForProfile(profile) {
-    const { income_type, income_amount } = profile;
+    const { income_type, income_amount, days_per_month } = profile;
+    const daysPerMonth = days_per_month || 20;
+    const hoursPerDay = 8; // Assuming 8 hours per day
+    const hoursPerMonth = daysPerMonth * hoursPerDay;
     
     if (income_type === 'hourly') return income_amount;
-    if (income_type === 'monthly') return income_amount / (40 * 4.33);
-    if (income_type === 'yearly') return income_amount / (40 * 52);
+    if (income_type === 'monthly') return income_amount / hoursPerMonth;
+    if (income_type === 'yearly') return income_amount / (hoursPerMonth * 12);
     
     return 0;
 }
 
 function calculateDisposableIncomeForProfile(profile) {
-    const { income_type, income_amount, monthly_expenses } = profile;
+    const { income_type, income_amount, monthly_expenses, days_per_month } = profile;
+    const daysPerMonth = days_per_month || 20;
+    const hoursPerDay = 8; // Assuming 8 hours per day
+    const hoursPerMonth = daysPerMonth * hoursPerDay;
     
     let monthlyIncome;
     if (income_type === 'hourly') {
-        monthlyIncome = income_amount * 40 * 4.33;
+        monthlyIncome = income_amount * hoursPerMonth;
     } else if (income_type === 'monthly') {
         monthlyIncome = income_amount;
     } else if (income_type === 'yearly') {
@@ -1387,7 +1530,7 @@ async function calculateSavings() {
             <h3>Savings Timeline</h3>
             <div class="result-item">
                 <strong>Total Wishlist Value:</strong>
-                <span>$${totalPrice.toFixed(2)}</span>
+                <span>€${totalPrice.toFixed(2)}</span>
             </div>
             <div class="result-item">
                 <strong>Time to Afford Everything:</strong>
@@ -1405,7 +1548,7 @@ async function calculateSavings() {
                 
                 return `
                     <div class="result-item">
-                        <strong>${goal.name} ($${totalPrice.toFixed(2)}):</strong>
+                        <strong>${goal.name} (€${totalPrice.toFixed(2)}):</strong>
                         <span>${weeksNeeded.toFixed(1)} weeks (${monthsNeeded.toFixed(1)} months)</span>
                     </div>
                 `;

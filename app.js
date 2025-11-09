@@ -46,6 +46,7 @@ let items = [];
 let goals = [];
 let financialProfile = null;
 let currentEditingItem = null;
+let listBudgets = [];
 
 // Initialize app
 document.addEventListener('DOMContentLoaded', async () => {
@@ -252,6 +253,7 @@ function setupEventListeners() {
     document.getElementById('filterCategory').addEventListener('change', renderWishlist);
     document.getElementById('filterGoal').addEventListener('change', renderWishlist);
     document.getElementById('filterPriority').addEventListener('change', renderWishlist);
+    document.getElementById('searchItems').addEventListener('input', renderWishlist);
 
     // What-if and savings
     document.getElementById('calculateWhatIf').addEventListener('click', calculateWhatIf);
@@ -359,11 +361,16 @@ async function loadData() {
     await loadFinancialProfile();
     await loadGoals();
     await loadItems();
+    await loadListBudgets();
     updateGoalSelects();
     updateCategoryFilter();
     updateListSelectors();
     renderLists();
+    renderBudgets();
     renderWishlist();
+    
+    // Check prices daily for items with purchase links
+    checkPricesDaily();
 }
 
 // Update list selectors with available lists
@@ -425,26 +432,54 @@ function renderLists() {
         const totalPrice = listItems.reduce((sum, item) => sum + (item.price || 0), 0);
         const totalHours = calculateHoursToAfford(totalPrice);
         
+        // Get budget for this list
+        const budget = listBudgets.find(b => b.list_name === listName);
+        const budgetAmount = budget ? budget.budget_amount : null;
+        const budgetProgress = budgetAmount ? (totalPrice / budgetAmount) * 100 : null;
+        const isOverBudget = budgetAmount && totalPrice > budgetAmount;
+        
         const listBadge = document.createElement('div');
         listBadge.className = 'goal-badge';
-        listBadge.style.cssText = 'display: flex; justify-content: space-between; align-items: center;';
-        listBadge.innerHTML = `
+        listBadge.style.cssText = 'display: flex; flex-direction: column; gap: 8px;';
+        
+        const mainRow = document.createElement('div');
+        mainRow.style.cssText = 'display: flex; justify-content: space-between; align-items: center;';
+        mainRow.innerHTML = `
             <div style="display: flex; align-items: center; gap: 12px; flex: 1; cursor: pointer;" class="list-name-container">
                 <span>📋 ${escapeHtml(listName)}</span>
                 <span class="goal-stats">${listItems.length} items • €${totalPrice.toFixed(2)} • ${totalHours.toFixed(1)}h</span>
+                ${budgetAmount ? `<span style="color: ${isOverBudget ? 'var(--danger-color)' : 'var(--text-secondary)'}; font-size: 0.9rem;">/ €${budgetAmount.toFixed(2)}</span>` : ''}
             </div>
             <button class="btn btn-danger delete-list-btn" style="padding: 4px 12px; font-size: 0.85rem; margin-left: 8px;" data-list="${escapeHtml(listName)}">Delete</button>
         `;
         
-        // Click to view list
-        const nameContainer = listBadge.querySelector('.list-name-container');
+        listBadge.appendChild(mainRow);
+        
+        // Budget progress bar
+        if (budgetAmount) {
+            const progressBar = document.createElement('div');
+            progressBar.style.cssText = 'width: 100%; height: 8px; background: var(--border); border-radius: 4px; overflow: hidden;';
+            const progressFill = document.createElement('div');
+            progressFill.style.cssText = `width: ${Math.min(budgetProgress, 100)}%; height: 100%; background: ${isOverBudget ? 'var(--danger-color)' : 'var(--primary-color)'}; transition: width 0.3s ease;`;
+            progressBar.appendChild(progressFill);
+            listBadge.appendChild(progressBar);
+            
+            if (isOverBudget) {
+                const overBudgetMsg = document.createElement('div');
+                overBudgetMsg.style.cssText = 'color: var(--danger-color); font-size: 0.85rem; margin-top: 4px;';
+                overBudgetMsg.textContent = `⚠️ Over budget by €${(totalPrice - budgetAmount).toFixed(2)}`;
+                listBadge.appendChild(overBudgetMsg);
+            }
+        }
+        
+        const nameContainer = mainRow.querySelector('.list-name-container');
         nameContainer.addEventListener('click', () => {
             document.getElementById('viewList').value = listName;
             renderWishlist();
         });
         
         // Delete button
-        const deleteBtn = listBadge.querySelector('.delete-list-btn');
+        const deleteBtn = mainRow.querySelector('.delete-list-btn');
         deleteBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             deleteList(listName);
@@ -462,6 +497,7 @@ async function deleteList(listName) {
     
     if (itemCount === 0) {
         renderLists();
+        renderBudgets();
         updateListSelectors();
         renderWishlist();
         return;
@@ -495,6 +531,7 @@ async function deleteList(listName) {
             });
             
             renderLists();
+            renderBudgets();
             updateListSelectors();
             renderWishlist();
             showStatus(`List "${listName}" removed from items`, 'success');
@@ -522,11 +559,177 @@ async function deleteList(listName) {
                 items = items.filter(item => item.list_name !== listName);
                 
                 renderLists();
+                renderBudgets();
                 updateListSelectors();
                 renderWishlist();
                 showStatus(`List "${listName}" and all its items deleted`, 'success');
             }
         }
+    }
+}
+
+function renderBudgets() {
+    const budgetsListEl = document.getElementById('budgetsList');
+    if (!budgetsListEl) return;
+    
+    budgetsListEl.innerHTML = '';
+    
+    // Get all lists that have items
+    const existingLists = [...new Set(items.map(item => item.list_name).filter(l => l))];
+    
+    if (existingLists.length === 0 && listBudgets.length === 0) {
+        budgetsListEl.innerHTML = '<p style="color: var(--text-secondary); padding: 16px; text-align: center;">No budgets set. Add a budget to a list to track spending.</p>';
+        return;
+    }
+    
+    // Show budgets for lists that have items or have budgets set
+    const listsToShow = [...new Set([...existingLists, ...listBudgets.map(b => b.list_name)])].sort();
+    
+    listsToShow.forEach(listName => {
+        const budget = listBudgets.find(b => b.list_name === listName);
+        const listItems = items.filter(item => item.list_name === listName);
+        const totalPrice = listItems.reduce((sum, item) => sum + (item.price || 0), 0);
+        
+        const budgetCard = document.createElement('div');
+        budgetCard.className = 'goal-badge';
+        budgetCard.style.cssText = 'display: flex; flex-direction: column; gap: 12px; padding: 16px;';
+        
+        const headerRow = document.createElement('div');
+        headerRow.style.cssText = 'display: flex; justify-content: space-between; align-items: center;';
+        headerRow.innerHTML = `
+            <div>
+                <strong>📋 ${escapeHtml(listName)}</strong>
+                ${listItems.length > 0 ? `<div style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 4px;">${listItems.length} items • €${totalPrice.toFixed(2)}</div>` : ''}
+            </div>
+        `;
+        budgetCard.appendChild(headerRow);
+        
+        const inputRow = document.createElement('div');
+        inputRow.style.cssText = 'display: flex; gap: 8px; align-items: center;';
+        
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.step = '0.01';
+        input.min = '0';
+        input.placeholder = 'Set budget (€)';
+        input.value = budget ? budget.budget_amount.toFixed(2) : '';
+        input.style.cssText = 'flex: 1; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border);';
+        
+        const saveBtn = document.createElement('button');
+        saveBtn.className = 'btn btn-primary';
+        saveBtn.textContent = budget ? 'Update' : 'Set';
+        saveBtn.style.cssText = 'padding: 8px 16px; font-size: 0.9rem;';
+        saveBtn.addEventListener('click', () => {
+            const amount = parseFloat(input.value);
+            if (isNaN(amount) || amount <= 0) {
+                alert('Please enter a valid budget amount');
+                return;
+            }
+            saveBudget(listName, amount);
+        });
+        
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'btn btn-danger';
+        deleteBtn.textContent = 'Remove';
+        deleteBtn.style.cssText = 'padding: 8px 16px; font-size: 0.9rem;';
+        deleteBtn.style.display = budget ? 'block' : 'none';
+        deleteBtn.addEventListener('click', () => {
+            deleteBudget(listName);
+        });
+        
+        inputRow.appendChild(input);
+        inputRow.appendChild(saveBtn);
+        if (budget) {
+            inputRow.appendChild(deleteBtn);
+        }
+        
+        budgetCard.appendChild(inputRow);
+        
+        // Show progress if budget exists
+        if (budget) {
+            const budgetAmount = budget.budget_amount;
+            const progress = (totalPrice / budgetAmount) * 100;
+            const isOverBudget = totalPrice > budgetAmount;
+            
+            const progressBar = document.createElement('div');
+            progressBar.style.cssText = 'width: 100%; height: 12px; background: var(--border); border-radius: 6px; overflow: hidden; margin-top: 8px;';
+            const progressFill = document.createElement('div');
+            progressFill.style.cssText = `width: ${Math.min(progress, 100)}%; height: 100%; background: ${isOverBudget ? 'var(--danger-color)' : 'var(--primary-color)'}; transition: width 0.3s ease;`;
+            progressBar.appendChild(progressFill);
+            budgetCard.appendChild(progressBar);
+            
+            const progressText = document.createElement('div');
+            progressText.style.cssText = `font-size: 0.85rem; margin-top: 4px; color: ${isOverBudget ? 'var(--danger-color)' : 'var(--text-secondary)'};`;
+            if (isOverBudget) {
+                progressText.textContent = `⚠️ Over budget by €${(totalPrice - budgetAmount).toFixed(2)} (${progress.toFixed(1)}%)`;
+            } else {
+                progressText.textContent = `€${totalPrice.toFixed(2)} / €${budgetAmount.toFixed(2)} (${progress.toFixed(1)}%)`;
+            }
+            budgetCard.appendChild(progressText);
+        }
+        
+        budgetsListEl.appendChild(budgetCard);
+    });
+}
+
+async function saveBudget(listName, amount) {
+    if (!currentUser || !listName || !amount) return;
+    
+    const budgetData = {
+        user_id: currentUser.id,
+        list_name: listName,
+        budget_amount: parseFloat(amount.toFixed(2))
+    };
+    
+    const existingBudget = listBudgets.find(b => b.list_name === listName);
+    
+    let error;
+    if (existingBudget) {
+        // Update existing budget
+        const { error: updateError } = await supabase
+            .from('list_budgets')
+            .update({ budget_amount: budgetData.budget_amount })
+            .eq('user_id', currentUser.id)
+            .eq('list_name', listName);
+        error = updateError;
+    } else {
+        // Insert new budget
+        const { error: insertError } = await supabase
+            .from('list_budgets')
+            .insert([budgetData]);
+        error = insertError;
+    }
+    
+    if (error) {
+        console.error('Error saving budget:', error);
+        alert('Error saving budget');
+    } else {
+        await loadListBudgets();
+        renderBudgets();
+        renderLists();
+        showStatus(`Budget for "${listName}" saved`, 'success');
+    }
+}
+
+async function deleteBudget(listName) {
+    if (!currentUser || !listName) return;
+    
+    if (!confirm(`Remove budget for "${listName}"?`)) return;
+    
+    const { error } = await supabase
+        .from('list_budgets')
+        .delete()
+        .eq('user_id', currentUser.id)
+        .eq('list_name', listName);
+    
+    if (error) {
+        console.error('Error deleting budget:', error);
+        alert('Error deleting budget');
+    } else {
+        await loadListBudgets();
+        renderBudgets();
+        renderLists();
+        showStatus(`Budget for "${listName}" removed`, 'success');
     }
 }
 
@@ -949,6 +1152,7 @@ If you cannot determine certain information from the URL, use null for that fiel
             document.getElementById('detailTitle').value = product.product_title || '';
             document.getElementById('detailPrice').value = product.price ? parseFloat(product.price).toFixed(2) : '';
             document.getElementById('detailImageUrl').value = imageUrl;
+            document.getElementById('detailPurchaseLink').value = url; // Use the scraped URL as purchase link
             updateImagePreview(imageUrl); // Show image preview
             document.getElementById('detailSpecs').value = Array.isArray(product.list_of_specifications) 
                 ? product.list_of_specifications.join('\n')
@@ -1047,6 +1251,7 @@ If you cannot determine certain information from the URL, use null for that fiel
             document.getElementById('detailTitle').value = product.product_title || '';
             document.getElementById('detailPrice').value = product.price ? parseFloat(product.price).toFixed(2) : '';
             document.getElementById('detailImageUrl').value = product.main_image_url || '';
+            document.getElementById('detailPurchaseLink').value = url; // Use the scraped URL as purchase link
             document.getElementById('detailSpecs').value = Array.isArray(product.list_of_specifications) 
                 ? product.list_of_specifications.join('\n')
                 : product.list_of_specifications || '';
@@ -1197,6 +1402,7 @@ If you cannot find certain information, use null for that field. Price should be
         document.getElementById('detailTitle').value = product.product_title || '';
         document.getElementById('detailPrice').value = product.price ? parseFloat(product.price).toFixed(2) : '';
         document.getElementById('detailImageUrl').value = imageUrl;
+        document.getElementById('detailPurchaseLink').value = url; // Use the scraped URL as purchase link
         updateImagePreview(imageUrl); // Show image preview
         document.getElementById('detailSpecs').value = Array.isArray(product.list_of_specifications) 
             ? product.list_of_specifications.join('\n')
@@ -1257,6 +1463,7 @@ function showManualItemForm() {
     document.getElementById('detailTitle').value = '';
     document.getElementById('detailPrice').value = '';
     document.getElementById('detailImageUrl').value = '';
+    document.getElementById('detailPurchaseLink').value = '';
     document.getElementById('detailSpecs').value = '';
     document.getElementById('detailCategory').value = '';
     document.getElementById('detailPriority').value = 'medium';
@@ -1274,6 +1481,7 @@ async function saveItem() {
     const title = document.getElementById('detailTitle').value.trim();
     const price = parseFloat(document.getElementById('detailPrice').value);
     const imageUrl = document.getElementById('detailImageUrl').value.trim();
+    const purchaseLink = document.getElementById('detailPurchaseLink').value.trim();
     const specs = document.getElementById('detailSpecs').value.trim().split('\n').filter(s => s.trim());
     const category = document.getElementById('detailCategory').value.trim();
     const priority = document.getElementById('detailPriority').value;
@@ -1291,6 +1499,7 @@ async function saveItem() {
         title,
         price: parseFloat(price.toFixed(2)), // Ensure consistent price format
         image_url: imageUrl,
+        purchase_link: purchaseLink || null,
         specifications: specs,
         category: category || null,
         priority,
@@ -1355,8 +1564,211 @@ async function loadItems() {
 
     if (error) {
         console.error('Error loading items:', error);
+        items = [];
     } else {
         items = data || [];
+    }
+}
+
+async function loadListBudgets() {
+    if (!currentUser) return;
+
+    const { data, error } = await supabase
+        .from('list_budgets')
+        .select('*')
+        .eq('user_id', currentUser.id)
+        .order('list_name', { ascending: true });
+
+    if (error) {
+        console.error('Error loading budgets:', error);
+        listBudgets = [];
+    } else {
+        listBudgets = data || [];
+    }
+}
+
+// Price Tracking - Check prices daily for items with purchase links
+async function checkPricesDaily() {
+    if (!currentUser) return;
+    
+    // Get items with purchase links that need price checking
+    const itemsToCheck = items.filter(item => {
+        if (!item.purchase_link) return false;
+        
+        // Check if we need to update (never checked or last check was more than 24 hours ago)
+        if (!item.last_price_check) return true;
+        
+        const lastCheck = new Date(item.last_price_check);
+        const now = new Date();
+        const hoursSinceCheck = (now - lastCheck) / (1000 * 60 * 60);
+        
+        return hoursSinceCheck >= 24;
+    });
+    
+    if (itemsToCheck.length === 0) return;
+    
+    // Check prices for items that need updating (limit to 5 at a time to avoid rate limits)
+    const itemsToUpdate = itemsToCheck.slice(0, 5);
+    
+    for (const item of itemsToUpdate) {
+        try {
+            await checkItemPrice(item);
+            // Add a small delay between requests to avoid rate limiting
+            await new Promise(resolve => setTimeout(resolve, 2000));
+        } catch (error) {
+            console.error(`Error checking price for item ${item.id}:`, error);
+        }
+    }
+    
+    // Reload items to get updated prices
+    await loadItems();
+    renderWishlist();
+}
+
+async function checkItemPrice(item) {
+    if (!item.purchase_link) return;
+    
+    try {
+        // Use the same scraping logic as scrapeProduct
+        const url = item.purchase_link;
+        
+        // Try using Supabase Edge Function first
+        try {
+            const supabaseProjectUrl = supabase.supabaseUrl || window.location.origin;
+            const edgeFunctionUrl = `${supabaseProjectUrl}/functions/v1/scrape-product`;
+            
+            const session = await supabase.auth.getSession();
+            const response = await fetch(edgeFunctionUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${session.data.session?.access_token || ''}`
+                },
+                body: JSON.stringify({ url })
+            });
+            
+            if (response.ok) {
+                const result = await response.json();
+                if (result.success && result.product && result.product.price) {
+                    const newPrice = parseFloat(result.product.price);
+                    if (!isNaN(newPrice) && newPrice > 0) {
+                        await updateItemPrice(item.id, newPrice);
+                        return;
+                    }
+                }
+            }
+        } catch (edgeError) {
+            console.log('Edge function failed, trying direct scraping...', edgeError);
+        }
+        
+        // Fallback: Try direct scraping with CORS proxies
+        const proxies = [
+            `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+            `https://corsproxy.io/?${encodeURIComponent(url)}`,
+            `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`
+        ];
+        
+        let html = null;
+        for (const proxyUrl of proxies) {
+            try {
+                const htmlResponse = await fetch(proxyUrl, {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+                    }
+                });
+                
+                if (htmlResponse.ok) {
+                    html = await htmlResponse.text();
+                    if (html && html.length > 100) {
+                        break;
+                    }
+                }
+            } catch (err) {
+                continue;
+            }
+        }
+        
+        if (!html) {
+            // If all proxies failed, try using Gemini with just the URL
+            const prompt = `Extract the current price from this product URL: ${url}\n\nReturn ONLY a JSON object with this format:\n{\n  "price": number (numeric value in EUR, convert from other currencies if needed)\n}\n\nIMPORTANT: Convert the price to EUR if it's in another currency. Common conversions: 1 EUR ≈ 7.5 DKK, 1 EUR ≈ 1.1 USD, 1 EUR ≈ 0.85 GBP. If you cannot find the price, return {"price": null}.`;
+            
+            const responseText = await callGeminiAPI(prompt);
+            let jsonText = responseText.trim();
+            
+            if (jsonText.includes('```json')) {
+                jsonText = jsonText.replace(/```json\n?/g, '').replace(/```\n?/g, '');
+            } else if (jsonText.includes('```')) {
+                jsonText = jsonText.replace(/```\n?/g, '');
+            }
+            
+            const jsonMatch = jsonText.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                jsonText = jsonMatch[0];
+            }
+            
+            const product = JSON.parse(jsonText);
+            if (product.price && !isNaN(product.price) && product.price > 0) {
+                await updateItemPrice(item.id, parseFloat(product.price));
+                return;
+            }
+        } else {
+            // Extract text content from HTML
+            const textContent = html
+                .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+                .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+                .replace(/<[^>]+>/g, ' ')
+                .replace(/\s+/g, ' ')
+                .substring(0, 50000);
+            
+            const prompt = `Extract the current price from this webpage content:\n\n${textContent}\n\nReturn ONLY a JSON object with this format:\n{\n  "price": number (numeric value in EUR, convert from other currencies if needed)\n}\n\nIMPORTANT: Extract the actual current price. Look for price patterns like "€", "EUR", "$", "USD", "DKK", "kr", "£", "GBP", etc. Convert to EUR if needed (1 EUR ≈ 7.5 DKK, 1 EUR ≈ 1.1 USD, 1 EUR ≈ 0.85 GBP). If you cannot find the price, return {"price": null}.`;
+            
+            const responseText = await callGeminiAPI(prompt);
+            let jsonText = responseText.trim();
+            
+            if (jsonText.includes('```json')) {
+                jsonText = jsonText.replace(/```json\n?/g, '').replace(/```\n?/g, '');
+            } else if (jsonText.includes('```')) {
+                jsonText = jsonText.replace(/```\n?/g, '');
+            }
+            
+            const jsonMatch = jsonText.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                jsonText = jsonMatch[0];
+            }
+            
+            const product = JSON.parse(jsonText);
+            if (product.price && !isNaN(product.price) && product.price > 0) {
+                await updateItemPrice(item.id, parseFloat(product.price));
+                return;
+            }
+        }
+    } catch (error) {
+        console.error(`Error checking price for item ${item.id}:`, error);
+    }
+}
+
+async function updateItemPrice(itemId, newPrice) {
+    if (!currentUser) return;
+    
+    const { error } = await supabase
+        .from('items')
+        .update({
+            current_price: parseFloat(newPrice.toFixed(2)),
+            last_price_check: new Date().toISOString()
+        })
+        .eq('id', itemId)
+        .eq('user_id', currentUser.id);
+    
+    if (error) {
+        console.error('Error updating item price:', error);
+    } else {
+        // Update local item
+        const item = items.find(i => i.id === itemId);
+        if (item) {
+            item.current_price = parseFloat(newPrice.toFixed(2));
+            item.last_price_check = new Date().toISOString();
+        }
     }
 }
 
@@ -1371,6 +1783,7 @@ function renderWishlist() {
     const filterGoal = document.getElementById('filterGoal').value;
     const filterPriority = document.getElementById('filterPriority').value;
     const filterList = document.getElementById('filterList').value.trim();
+    const searchQuery = document.getElementById('searchItems').value.trim().toLowerCase();
 
     // Filter items - viewList takes priority (shows only one list at a time)
     let filteredItems = [...items];
@@ -1396,6 +1809,16 @@ function renderWishlist() {
     // filterList is only used if viewList is not set
     if (filterList && !viewList) {
         filteredItems = filteredItems.filter(item => item.list_name === filterList);
+    }
+    
+    // Apply search filter
+    if (searchQuery) {
+        filteredItems = filteredItems.filter(item => {
+            const titleMatch = item.title?.toLowerCase().includes(searchQuery);
+            const categoryMatch = item.category?.toLowerCase().includes(searchQuery);
+            const tagsMatch = Array.isArray(item.tags) && item.tags.some(tag => tag.toLowerCase().includes(searchQuery));
+            return titleMatch || categoryMatch || tagsMatch;
+        });
     }
 
     // Sort items
@@ -1439,11 +1862,19 @@ function createItemCard(item) {
                 <div class="item-title">${escapeHtml(item.title)}</div>
                 <span class="priority-badge ${priorityClass}">${(item.priority || 'medium').toUpperCase()}</span>
             </div>
-            <div class="item-price">€${(item.price || 0).toFixed(2)}</div>
+            <div class="item-price">
+                €${(item.price || 0).toFixed(2)}
+                ${item.current_price && item.current_price !== item.price ? `
+                    <span style="font-size: 0.75em; margin-left: 8px; color: ${item.current_price < item.price ? 'var(--success-color, #10b981)' : 'var(--danger-color)'};">
+                        (€${item.current_price.toFixed(2)})
+                    </span>
+                ` : ''}
+            </div>
             <div class="item-hours">⏱️ ${hours.toFixed(1)} hours of work</div>
             ${item.category ? `<span class="item-category">${escapeHtml(item.category)}</span>` : ''}
             ${item.list_name ? `<span class="item-list" style="display: inline-block; margin-top: 4px; padding: 2px 8px; background: var(--background); border-radius: 4px; font-size: 0.85rem; color: var(--text-secondary);">📋 ${escapeHtml(item.list_name)}</span>` : ''}
             <div class="item-actions">
+                ${item.purchase_link ? `<button class="btn btn-primary purchase-link-btn" data-link="${escapeHtml(item.purchase_link)}" style="margin-bottom: 4px;">🛒 Buy Now</button>` : ''}
                 <button class="btn btn-secondary view-item-btn" data-id="${item.id}">View Details</button>
                 <button class="btn btn-secondary find-alternatives-btn" data-id="${item.id}">Find Alternatives</button>
                 <button class="btn btn-secondary edit-item-btn" data-id="${item.id}">Edit</button>
@@ -1457,6 +1888,17 @@ function createItemCard(item) {
     card.querySelector('.find-alternatives-btn').addEventListener('click', () => findAlternatives(item));
     card.querySelector('.edit-item-btn').addEventListener('click', () => editItem(item));
     card.querySelector('.delete-item-btn').addEventListener('click', () => deleteItem(item.id));
+    
+    // Purchase link button
+    const purchaseBtn = card.querySelector('.purchase-link-btn');
+    if (purchaseBtn) {
+        purchaseBtn.addEventListener('click', (e) => {
+            const link = e.target.dataset.link;
+            if (link) {
+                window.open(link, '_blank');
+            }
+        });
+    }
     
     // Add image error handler
     const img = card.querySelector('.item-image');
@@ -1522,7 +1964,14 @@ async function showItemDetails(item) {
     content.innerHTML = `
         ${item.image_url ? `<img src="${escapeHtml(item.image_url)}" alt="${escapeHtml(item.title)}" class="modal-item-image">` : ''}
         <h2>${escapeHtml(item.title)}</h2>
-        <div class="item-price">€${(item.price || 0).toFixed(2)}</div>
+        <div class="item-price">
+            €${(item.price || 0).toFixed(2)}
+            ${item.current_price && item.current_price !== item.price ? `
+                <span style="font-size: 0.75em; margin-left: 8px; color: ${item.current_price < item.price ? 'var(--success-color, #10b981)' : 'var(--danger-color)'};">
+                    (€${item.current_price.toFixed(2)})
+                </span>
+            ` : ''}
+        </div>
         <div class="item-hours">⏱️ ${calculateHoursToAfford(item.price || 0).toFixed(1)} hours of work</div>
         
         ${specSummary ? `
@@ -1545,6 +1994,7 @@ async function showItemDetails(item) {
         
         ${item.category ? `<p><strong>Category:</strong> ${escapeHtml(item.category)}</p>` : ''}
         ${item.list_name ? `<p><strong>List:</strong> ${escapeHtml(item.list_name)}</p>` : ''}
+        ${item.purchase_link ? `<p><strong>Purchase Link:</strong> <a href="${escapeHtml(item.purchase_link)}" target="_blank" style="color: var(--primary-color);">${escapeHtml(item.purchase_link)}</a></p>` : ''}
         ${item.tags && item.tags.length > 0 ? `<p><strong>Tags:</strong> ${item.tags.map(t => escapeHtml(t)).join(', ')}</p>` : ''}
     `;
     
@@ -1688,6 +2138,7 @@ function editItem(item) {
     document.getElementById('detailTitle').value = item.title || '';
     document.getElementById('detailPrice').value = item.price || '';
     document.getElementById('detailImageUrl').value = item.image_url || '';
+    document.getElementById('detailPurchaseLink').value = item.purchase_link || '';
     document.getElementById('detailSpecs').value = Array.isArray(item.specifications) 
         ? item.specifications.join('\n')
         : (item.specifications || '');

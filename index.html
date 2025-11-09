@@ -85,6 +85,14 @@
             <div id="listsList" class="lists-list"></div>
         </section>
 
+        <!-- Budgets Section -->
+        <section class="budgets-section card">
+            <div class="section-header">
+                <h2>💰 List Budgets</h2>
+            </div>
+            <div id="budgetsList" class="budgets-list"></div>
+        </section>
+
         <!-- Add Item Section -->
         <section class="add-item-section card">
             <h2>➕ Add Item</h2>
@@ -141,6 +149,10 @@
                     </div>
                 </div>
                 <div class="form-group">
+                    <label>Purchase Link (URL):</label>
+                    <input type="url" id="detailPurchaseLink" placeholder="https://example.com/product">
+                </div>
+                <div class="form-group">
                     <label>Specifications (one per line):</label>
                     <textarea id="detailSpecs" rows="6"></textarea>
                 </div>
@@ -188,6 +200,10 @@
 
         <!-- Filters and Sorting -->
         <section class="filters-section card">
+            <div class="form-group" style="margin-bottom: 16px;">
+                <label>Search Items:</label>
+                <input type="text" id="searchItems" placeholder="Search by title, category, or tags..." style="width: 100%; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border);">
+            </div>
             <div class="filters-row">
                 <div class="form-group">
                     <label>Sort by:</label>

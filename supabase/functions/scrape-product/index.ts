@@ -48,16 +48,19 @@ serve(async (req) => {
     const prompt = `Extract product information from the following webpage content. Return ONLY a valid JSON object with this exact structure:
 {
   "product_title": "string",
-  "price": number (numeric value only, no currency symbols),
+  "price": number (numeric value in EUR, convert from other currencies if needed),
   "main_image_url": "string (full URL)",
   "list_of_specifications": ["string", "string", ...],
   "suggested_category": "string (one word category like Tech, Home, Apparel, etc.)"
 }
 
+IMPORTANT REQUIREMENTS:
+- Price: CRITICAL - Extract the actual current price. Look for price patterns like "€", "EUR", "$", "USD", "DKK", "kr", "£", "GBP", etc. Convert to EUR if needed (1 EUR ≈ 7.5 DKK, 1 EUR ≈ 1.1 USD, 1 EUR ≈ 0.85 GBP). If price is not found, use null.
+
 Webpage content:
 ${textContent}
 
-If you cannot find certain information, use null for that field. Price should be a number only.`;
+If you cannot find certain information, use null for that field. Price should be a number in EUR.`;
 
     const geminiResponse = await fetch(
       `${GEMINI_API_URL}?key=${GEMINI_API_KEY}`,

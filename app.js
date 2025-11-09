@@ -156,36 +156,41 @@ async function loadData() {
 
 // Update list selectors with available lists
 function updateListSelectors() {
-    const lists = [...new Set(items.map(item => item.list_name).filter(l => l))];
-    const viewListSelect = document.getElementById('viewList');
-    const filterListSelect = document.getElementById('filterList');
+    const existingLists = [...new Set(items.map(item => item.list_name).filter(l => l))];
+    const premadeLists = ['Grocery', 'Christmas List', 'Temu List'];
+    const allLists = [...new Set([...premadeLists, ...existingLists])].sort();
     
-    if (!viewListSelect || !filterListSelect) return;
-    
-    // Update viewList selector (keep "All Lists" option)
-    const currentViewValue = viewListSelect.value;
-    viewListSelect.innerHTML = '<option value="">All Lists</option>';
-    lists.forEach(list => {
-        const option = document.createElement('option');
-        option.value = list;
-        option.textContent = list;
-        viewListSelect.appendChild(option);
-    });
-    if (currentViewValue && lists.includes(currentViewValue)) {
-        viewListSelect.value = currentViewValue;
+    // Update datalist options for detailList
+    const listOptions = document.getElementById('listOptions');
+    if (listOptions) {
+        listOptions.innerHTML = '';
+        allLists.forEach(list => {
+            const option = document.createElement('option');
+            option.value = list;
+            listOptions.appendChild(option);
+        });
     }
     
-    // Update filterList selector (keep "All Lists" option)
-    const currentFilterValue = filterListSelect.value;
-    filterListSelect.innerHTML = '<option value="">All Lists</option>';
-    ['Grocery', 'Christmas List', 'Temu List'].forEach(list => {
-        const option = document.createElement('option');
-        option.value = list;
-        option.textContent = list;
-        filterListSelect.appendChild(option);
-    });
-    if (currentFilterValue) {
-        filterListSelect.value = currentFilterValue;
+    // Update datalist options for viewList
+    const viewListOptions = document.getElementById('viewListOptions');
+    if (viewListOptions) {
+        viewListOptions.innerHTML = '';
+        allLists.forEach(list => {
+            const option = document.createElement('option');
+            option.value = list;
+            viewListOptions.appendChild(option);
+        });
+    }
+    
+    // Update datalist options for filterList
+    const filterListOptions = document.getElementById('filterListOptions');
+    if (filterListOptions) {
+        filterListOptions.innerHTML = '';
+        allLists.forEach(list => {
+            const option = document.createElement('option');
+            option.value = list;
+            filterListOptions.appendChild(option);
+        });
     }
 }
 
@@ -1024,11 +1029,11 @@ function renderWishlist() {
 
     // Get filters
     const sortBy = document.getElementById('sortBy').value;
-    const viewList = document.getElementById('viewList').value; // Main list view selector
+    const viewList = document.getElementById('viewList').value.trim(); // Main list view selector
     const filterCategory = document.getElementById('filterCategory').value;
     const filterGoal = document.getElementById('filterGoal').value;
     const filterPriority = document.getElementById('filterPriority').value;
-    const filterList = document.getElementById('filterList').value;
+    const filterList = document.getElementById('filterList').value.trim();
 
     // Filter items - viewList takes priority (shows only one list at a time)
     let filteredItems = [...items];

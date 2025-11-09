@@ -140,12 +140,12 @@
                     </div>
                     <div class="form-group">
                         <label>List:</label>
-                        <select id="detailList">
-                            <option value="">No List</option>
-                            <option value="Grocery">Grocery</option>
-                            <option value="Christmas List">Christmas List</option>
-                            <option value="Temu List">Temu List</option>
-                        </select>
+                        <input type="text" id="detailList" list="listOptions" placeholder="Type or select a list name">
+                        <datalist id="listOptions">
+                            <option value="Grocery">
+                            <option value="Christmas List">
+                            <option value="Temu List">
+                        </datalist>
                     </div>
                 </div>
                 <div class="form-actions">
@@ -191,12 +191,12 @@
                 </div>
                 <div class="form-group">
                     <label>Filter by List:</label>
-                    <select id="filterList">
-                        <option value="">All Lists</option>
-                        <option value="Grocery">Grocery</option>
-                        <option value="Christmas List">Christmas List</option>
-                        <option value="Temu List">Temu List</option>
-                    </select>
+                    <input type="text" id="filterList" list="filterListOptions" placeholder="All Lists">
+                    <datalist id="filterListOptions">
+                        <option value="Grocery">
+                        <option value="Christmas List">
+                        <option value="Temu List">
+                    </datalist>
                 </div>
             </div>
         </section>
@@ -208,12 +208,12 @@
                 <div style="display: flex; align-items: center; gap: 16px;">
                     <div class="form-group" style="margin: 0;">
                         <label style="font-size: 0.9rem; margin-bottom: 4px;">View List:</label>
-                        <select id="viewList" style="padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface);">
-                            <option value="">All Lists</option>
-                            <option value="Grocery">Grocery</option>
-                            <option value="Christmas List">Christmas List</option>
-                            <option value="Temu List">Temu List</option>
-                        </select>
+                        <input type="text" id="viewList" list="viewListOptions" placeholder="All Lists" style="padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); width: 200px;">
+                        <datalist id="viewListOptions">
+                            <option value="Grocery">
+                            <option value="Christmas List">
+                            <option value="Temu List">
+                        </datalist>
                     </div>
                     <div id="wishlistStats" class="wishlist-stats"></div>
                 </div>

@@ -47,7 +47,13 @@ let goals = [];
 let financialProfile = null;
 let currentEditingItem = null;
 let listBudgets = [];
-let showTrackedPrices = localStorage.getItem('showTrackedPrices') !== 'false'; // Default to true
+// Helper function to get showTrackedPrices preference
+function getShowTrackedPrices() {
+    const stored = localStorage.getItem('showTrackedPrices');
+    return stored !== 'false'; // Default to true if not set or if explicitly 'true'
+}
+
+let showTrackedPrices = getShowTrackedPrices(); // Initialize from localStorage
 
 // Initialize app
 document.addEventListener('DOMContentLoaded', async () => {
@@ -264,28 +270,35 @@ function setupEventListeners() {
     const togglePricesIcon = document.getElementById('togglePricesIcon');
     const togglePricesText = document.getElementById('togglePricesText');
     
-    // Update toggle button state
-    function updateToggleButtonState() {
-        if (showTrackedPrices) {
-            togglePricesIcon.textContent = '👁️';
-            togglePricesText.textContent = 'Hide Prices';
-            togglePricesBtn.title = 'Hide tracked prices';
-        } else {
-            togglePricesIcon.textContent = '🚫';
-            togglePricesText.textContent = 'Show Prices';
-            togglePricesBtn.title = 'Show tracked prices';
+    if (togglePricesBtn && togglePricesIcon && togglePricesText) {
+        // Update toggle button state
+        function updateToggleButtonState() {
+            if (showTrackedPrices) {
+                togglePricesIcon.textContent = '👁️';
+                togglePricesText.textContent = 'Hide Prices';
+                togglePricesBtn.title = 'Hide tracked prices';
+            } else {
+                togglePricesIcon.textContent = '🚫';
+                togglePricesText.textContent = 'Show Prices';
+                togglePricesBtn.title = 'Show tracked prices';
+            }
         }
-    }
-    
-    togglePricesBtn.addEventListener('click', () => {
-        showTrackedPrices = !showTrackedPrices;
-        localStorage.setItem('showTrackedPrices', showTrackedPrices.toString());
+        
+        togglePricesBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            showTrackedPrices = !showTrackedPrices;
+            localStorage.setItem('showTrackedPrices', showTrackedPrices.toString());
+            console.log('Toggle prices clicked, new state:', showTrackedPrices);
+            updateToggleButtonState();
+            renderWishlist(); // Re-render to apply the change
+        });
+        
+        // Initialize toggle button state
         updateToggleButtonState();
-        renderWishlist(); // Re-render to apply the change
-    });
-    
-    // Initialize toggle button state
-    updateToggleButtonState();
+    } else {
+        console.warn('Toggle prices button elements not found');
+    }
 
     // What-if and savings
     document.getElementById('calculateWhatIf').addEventListener('click', calculateWhatIf);
@@ -1968,7 +1981,7 @@ function createItemCard(item) {
             </div>
             <div class="item-price">
                 €${originalPrice.toFixed(2)}
-                ${showTrackedPrices && priceDifference ? `
+                ${getShowTrackedPrices() && priceDifference ? `
                     <span style="font-size: 0.75em; margin-left: 8px; color: ${currentPrice < originalPrice ? 'var(--success-color, #10b981)' : 'var(--danger-color)'};">
                         (€${currentPrice.toFixed(2)})
                     </span>

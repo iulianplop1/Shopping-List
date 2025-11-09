@@ -254,6 +254,9 @@ function setupEventListeners() {
     document.getElementById('filterGoal').addEventListener('change', renderWishlist);
     document.getElementById('filterPriority').addEventListener('change', renderWishlist);
     document.getElementById('searchItems').addEventListener('input', renderWishlist);
+    
+    // Price checking
+    document.getElementById('checkPricesBtn').addEventListener('click', () => checkPricesDaily(true));
 
     // What-if and savings
     document.getElementById('calculateWhatIf').addEventListener('click', calculateWhatIf);
@@ -356,6 +359,9 @@ function switchTab(tabName) {
     document.getElementById(tabName + 'Tab').classList.add('active');
 }
 
+// Price checking interval (check every hour while app is open)
+let priceCheckInterval = null;
+
 // Load all data
 async function loadData() {
     await loadFinancialProfile();
@@ -369,8 +375,19 @@ async function loadData() {
     renderBudgets();
     renderWishlist();
     
-    // Check prices daily for items with purchase links
+    // Check prices daily for items with purchase links (on initial load)
     checkPricesDaily();
+    
+    // Set up periodic price checking (every hour while app is open)
+    if (priceCheckInterval) {
+        clearInterval(priceCheckInterval);
+    }
+    // Check prices every hour (3600000 ms) while app is open
+    priceCheckInterval = setInterval(() => {
+        if (currentUser) {
+            checkPricesDaily(false); // Automatic check, not forced
+        }
+    }, 3600000); // 1 hour = 3600000 milliseconds
 }
 
 // Update list selectors with available lists
@@ -1567,6 +1584,16 @@ async function loadItems() {
         items = [];
     } else {
         items = data || [];
+        // Log items with current_price for debugging
+        const itemsWithPriceTracking = items.filter(item => item.current_price);
+        if (itemsWithPriceTracking.length > 0) {
+            console.log('Items with price tracking:', itemsWithPriceTracking.map(item => ({
+                title: item.title,
+                price: item.price,
+                current_price: item.current_price,
+                difference: item.current_price - item.price
+            })));
+        }
     }
 }
 
@@ -1588,14 +1615,20 @@ async function loadListBudgets() {
 }
 
 // Price Tracking - Check prices daily for items with purchase links
-async function checkPricesDaily() {
+async function checkPricesDaily(forceCheck = false) {
     if (!currentUser) return;
+    
+    const statusEl = document.getElementById('priceCheckStatus');
+    const checkBtn = document.getElementById('checkPricesBtn');
     
     // Get items with purchase links that need price checking
     const itemsToCheck = items.filter(item => {
         if (!item.purchase_link) return false;
         
-        // Check if we need to update (never checked or last check was more than 24 hours ago)
+        // If forcing check, check all items with purchase links
+        if (forceCheck) return true;
+        
+        // Otherwise, check if we need to update (never checked or last check was more than 24 hours ago)
         if (!item.last_price_check) return true;
         
         const lastCheck = new Date(item.last_price_check);
@@ -1605,24 +1638,68 @@ async function checkPricesDaily() {
         return hoursSinceCheck >= 24;
     });
     
-    if (itemsToCheck.length === 0) return;
+    if (itemsToCheck.length === 0) {
+        if (forceCheck) {
+            statusEl.style.display = 'block';
+            statusEl.className = 'status-message info';
+            statusEl.textContent = 'No items with purchase links to check.';
+            setTimeout(() => {
+                statusEl.style.display = 'none';
+            }, 3000);
+        }
+        return;
+    }
     
-    // Check prices for items that need updating (limit to 5 at a time to avoid rate limits)
-    const itemsToUpdate = itemsToCheck.slice(0, 5);
+    // Show status message
+    if (forceCheck) {
+        statusEl.style.display = 'block';
+        statusEl.className = 'status-message info';
+        statusEl.textContent = `Checking prices for ${itemsToCheck.length} item(s)...`;
+        checkBtn.disabled = true;
+        checkBtn.textContent = 'Checking...';
+    }
     
-    for (const item of itemsToUpdate) {
+    // Check prices for items (limit to 10 at a time when forced, 5 for automatic)
+    const limit = forceCheck ? 10 : 5;
+    const itemsToUpdate = itemsToCheck.slice(0, limit);
+    let successCount = 0;
+    let failCount = 0;
+    
+    for (let i = 0; i < itemsToUpdate.length; i++) {
+        const item = itemsToUpdate[i];
         try {
+            if (forceCheck) {
+                statusEl.textContent = `Checking ${i + 1}/${itemsToUpdate.length}: ${item.title}...`;
+            }
             await checkItemPrice(item);
+            successCount++;
             // Add a small delay between requests to avoid rate limiting
             await new Promise(resolve => setTimeout(resolve, 2000));
         } catch (error) {
             console.error(`Error checking price for item ${item.id}:`, error);
+            failCount++;
         }
     }
     
     // Reload items to get updated prices
     await loadItems();
     renderWishlist();
+    
+    // Update status message
+    if (forceCheck) {
+        if (successCount > 0) {
+            statusEl.className = 'status-message success';
+            statusEl.textContent = `✓ Successfully checked ${successCount} item(s)${failCount > 0 ? ` (${failCount} failed)` : ''}.`;
+        } else {
+            statusEl.className = 'status-message error';
+            statusEl.textContent = `✗ Failed to check prices. Please try again later.`;
+        }
+        checkBtn.disabled = false;
+        checkBtn.textContent = '🔍 Check Prices Now';
+        setTimeout(() => {
+            statusEl.style.display = 'none';
+        }, 5000);
+    }
 }
 
 async function checkItemPrice(item) {
@@ -1632,33 +1709,40 @@ async function checkItemPrice(item) {
         // Use the same scraping logic as scrapeProduct
         const url = item.purchase_link;
         
-        // Try using Supabase Edge Function first
-        try {
-            const supabaseProjectUrl = supabase.supabaseUrl || window.location.origin;
-            const edgeFunctionUrl = `${supabaseProjectUrl}/functions/v1/scrape-product`;
-            
-            const session = await supabase.auth.getSession();
-            const response = await fetch(edgeFunctionUrl, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${session.data.session?.access_token || ''}`
-                },
-                body: JSON.stringify({ url })
-            });
-            
-            if (response.ok) {
-                const result = await response.json();
-                if (result.success && result.product && result.product.price) {
-                    const newPrice = parseFloat(result.product.price);
-                    if (!isNaN(newPrice) && newPrice > 0) {
+        // Try using Supabase Edge Function first (skip if running from file:// protocol)
+        const isFileProtocol = window.location.protocol === 'file:' || window.location.origin === 'null' || !window.location.origin;
+        
+        if (!isFileProtocol) {
+            try {
+                const supabaseProjectUrl = supabase.supabaseUrl || window.location.origin;
+                const edgeFunctionUrl = `${supabaseProjectUrl}/functions/v1/scrape-product`;
+                
+                const session = await supabase.auth.getSession();
+                const response = await fetch(edgeFunctionUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${session.data.session?.access_token || ''}`
+                    },
+                    body: JSON.stringify({ url })
+                });
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    if (result.success && result.product && result.product.price) {
+                        const newPrice = parseFloat(result.product.price);
+                        if (!isNaN(newPrice) && newPrice > 0) {
                         await updateItemPrice(item.id, newPrice);
+                        console.log(`✓ Price updated for ${item.title}: €${newPrice.toFixed(2)} (original: €${(item.price || 0).toFixed(2)})`);
                         return;
+                        }
                     }
                 }
+            } catch (edgeError) {
+                console.log('Edge function failed, trying direct scraping...', edgeError);
             }
-        } catch (edgeError) {
-            console.log('Edge function failed, trying direct scraping...', edgeError);
+        } else {
+            console.log('Skipping edge function (file:// protocol detected), using direct scraping...');
         }
         
         // Fallback: Try direct scraping with CORS proxies
@@ -1679,8 +1763,9 @@ async function checkItemPrice(item) {
                 });
                 
                 if (htmlResponse.ok) {
-                    html = await htmlResponse.text();
-                    if (html && html.length > 100) {
+                    const htmlText = await htmlResponse.text();
+                    if (htmlText && htmlText.length > 100) {
+                        html = htmlText;
                         break;
                     }
                 }
@@ -1709,8 +1794,13 @@ async function checkItemPrice(item) {
             
             const product = JSON.parse(jsonText);
             if (product.price && !isNaN(product.price) && product.price > 0) {
-                await updateItemPrice(item.id, parseFloat(product.price));
+                const newPrice = parseFloat(product.price);
+                console.log(`✓ Price extracted for ${item.title}: €${newPrice.toFixed(2)} (original: €${(item.price || 0).toFixed(2)})`);
+                await updateItemPrice(item.id, newPrice);
                 return;
+            } else {
+                console.log(`✗ No valid price found for ${item.title} (URL-only method)`);
+                throw new Error(`Could not extract price for ${item.title}`);
             }
         } else {
             // Extract text content from HTML
@@ -1739,22 +1829,34 @@ async function checkItemPrice(item) {
             
             const product = JSON.parse(jsonText);
             if (product.price && !isNaN(product.price) && product.price > 0) {
-                await updateItemPrice(item.id, parseFloat(product.price));
+                const newPrice = parseFloat(product.price);
+                console.log(`✓ Price extracted for ${item.title}: €${newPrice.toFixed(2)} (original: €${(item.price || 0).toFixed(2)})`);
+                await updateItemPrice(item.id, newPrice);
                 return;
+            } else {
+                console.log(`✗ No valid price found for ${item.title} (HTML scraping method)`);
+                throw new Error(`Could not extract price for ${item.title}`);
             }
         }
     } catch (error) {
-        console.error(`Error checking price for item ${item.id}:`, error);
+        console.error(`Error checking price for item ${item.id} (${item.title}):`, error.message || error);
+        throw error; // Re-throw to be caught by checkPricesDaily
     }
 }
 
 async function updateItemPrice(itemId, newPrice) {
     if (!currentUser) return;
     
+    const priceValue = parseFloat(newPrice);
+    if (isNaN(priceValue) || priceValue <= 0) {
+        console.error('Invalid price value:', newPrice);
+        return;
+    }
+    
     const { error } = await supabase
         .from('items')
         .update({
-            current_price: parseFloat(newPrice.toFixed(2)),
+            current_price: priceValue,
             last_price_check: new Date().toISOString()
         })
         .eq('id', itemId)
@@ -1762,12 +1864,14 @@ async function updateItemPrice(itemId, newPrice) {
     
     if (error) {
         console.error('Error updating item price:', error);
+        throw error;
     } else {
         // Update local item
         const item = items.find(i => i.id === itemId);
         if (item) {
-            item.current_price = parseFloat(newPrice.toFixed(2));
+            item.current_price = priceValue;
             item.last_price_check = new Date().toISOString();
+            console.log(`Local item updated: ${item.title} - current_price: ${item.current_price}, price: ${item.price}`);
         }
     }
 }
@@ -1855,6 +1959,13 @@ function createItemCard(item) {
     const hours = calculateHoursToAfford(item.price || 0);
     const priorityClass = `priority-${item.priority || 'medium'}`;
     
+    // Normalize prices to numbers for comparison
+    const originalPrice = parseFloat(item.price) || 0;
+    const currentPrice = item.current_price ? parseFloat(item.current_price) : null;
+    
+    // Check if prices are different (account for floating point precision)
+    const priceDifference = currentPrice !== null && Math.abs(currentPrice - originalPrice) > 0.01;
+    
     card.innerHTML = `
         ${item.image_url ? `<img src="${escapeHtml(item.image_url)}" alt="${escapeHtml(item.title)}" class="item-image" loading="lazy">` : ''}
         <div class="item-content">
@@ -1863,10 +1974,10 @@ function createItemCard(item) {
                 <span class="priority-badge ${priorityClass}">${(item.priority || 'medium').toUpperCase()}</span>
             </div>
             <div class="item-price">
-                €${(item.price || 0).toFixed(2)}
-                ${item.current_price && item.current_price !== item.price ? `
-                    <span style="font-size: 0.75em; margin-left: 8px; color: ${item.current_price < item.price ? 'var(--success-color, #10b981)' : 'var(--danger-color)'};">
-                        (€${item.current_price.toFixed(2)})
+                €${originalPrice.toFixed(2)}
+                ${priceDifference ? `
+                    <span style="font-size: 0.75em; margin-left: 8px; color: ${currentPrice < originalPrice ? 'var(--success-color, #10b981)' : 'var(--danger-color)'};">
+                        (€${currentPrice.toFixed(2)})
                     </span>
                 ` : ''}
             </div>
@@ -1961,18 +2072,23 @@ async function showItemDetails(item) {
         specSummary = await generateSpecSummary(item);
     }
 
+    // Normalize prices to numbers for comparison
+    const originalPrice = parseFloat(item.price) || 0;
+    const currentPrice = item.current_price ? parseFloat(item.current_price) : null;
+    const priceDifference = currentPrice !== null && Math.abs(currentPrice - originalPrice) > 0.01;
+    
     content.innerHTML = `
         ${item.image_url ? `<img src="${escapeHtml(item.image_url)}" alt="${escapeHtml(item.title)}" class="modal-item-image">` : ''}
         <h2>${escapeHtml(item.title)}</h2>
         <div class="item-price">
-            €${(item.price || 0).toFixed(2)}
-            ${item.current_price && item.current_price !== item.price ? `
-                <span style="font-size: 0.75em; margin-left: 8px; color: ${item.current_price < item.price ? 'var(--success-color, #10b981)' : 'var(--danger-color)'};">
-                    (€${item.current_price.toFixed(2)})
+            €${originalPrice.toFixed(2)}
+            ${priceDifference ? `
+                <span style="font-size: 0.75em; margin-left: 8px; color: ${currentPrice < originalPrice ? 'var(--success-color, #10b981)' : 'var(--danger-color)'};">
+                    (€${currentPrice.toFixed(2)})
                 </span>
             ` : ''}
         </div>
-        <div class="item-hours">⏱️ ${calculateHoursToAfford(item.price || 0).toFixed(1)} hours of work</div>
+        <div class="item-hours">⏱️ ${calculateHoursToAfford(originalPrice).toFixed(1)} hours of work</div>
         
         ${specSummary ? `
             <div class="spec-summary">

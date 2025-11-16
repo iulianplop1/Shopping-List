@@ -502,14 +502,17 @@ function renderLists() {
         listBadge.style.cssText = 'display: flex; flex-direction: column; gap: 8px;';
         
         const mainRow = document.createElement('div');
-        mainRow.style.cssText = 'display: flex; justify-content: space-between; align-items: center;';
+        mainRow.style.cssText = 'display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;';
         mainRow.innerHTML = `
-            <div style="display: flex; align-items: center; gap: 12px; flex: 1; cursor: pointer;" class="list-name-container">
+            <div style="display: flex; align-items: center; gap: 12px; flex: 1; cursor: pointer; min-width: 200px;" class="list-name-container">
                 <span>📋 ${escapeHtml(listName)}</span>
                 <span class="goal-stats">${listItems.length} items • €${totalPrice.toFixed(2)} • ${totalHours.toFixed(1)}h</span>
-                ${budgetAmount ? `<span style="color: ${isOverBudget ? 'var(--danger-color)' : 'var(--text-secondary)'}; font-size: 0.9rem;">/ €${budgetAmount.toFixed(2)}</span>` : ''}
+                ${budgetAmount ? `<span style="color: ${isOverBudget ? 'var(--error)' : 'var(--text-secondary)'}; font-size: 0.9rem;">/ €${budgetAmount.toFixed(2)}</span>` : ''}
             </div>
-            <button class="btn btn-danger delete-list-btn" style="padding: 4px 12px; font-size: 0.85rem; margin-left: 8px;" data-list="${escapeHtml(listName)}">Delete</button>
+            <div style="display: flex; gap: 8px;">
+                <button class="btn btn-secondary export-list-btn" style="padding: 4px 12px; font-size: 0.85rem;" data-list="${escapeHtml(listName)}" title="Export list">📥 Export</button>
+                <button class="btn btn-danger delete-list-btn" style="padding: 4px 12px; font-size: 0.85rem;" data-list="${escapeHtml(listName)}">Delete</button>
+            </div>
         `;
         
         listBadge.appendChild(mainRow);
@@ -537,6 +540,13 @@ function renderLists() {
             renderWishlist();
         });
         
+        // Export button
+        const exportBtn = mainRow.querySelector('.export-list-btn');
+        exportBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            exportList(listName, listItems);
+        });
+        
         // Delete button
         const deleteBtn = mainRow.querySelector('.delete-list-btn');
         deleteBtn.addEventListener('click', (e) => {
@@ -546,6 +556,85 @@ function renderLists() {
         
         listsListEl.appendChild(listBadge);
     });
+}
+
+// Export list function
+function exportList(listName, listItems) {
+    if (!listItems || listItems.length === 0) {
+        alert('This list has no items to export.');
+        return;
+    }
+    
+    // Ask user for format
+    const format = confirm('Export as CSV?\n\nOK = CSV\nCancel = JSON');
+    
+    if (format) {
+        // Export as CSV
+        const headers = ['Title', 'Price (€)', 'Current Price (€)', 'Category', 'Priority', 'Tags', 'Purchase Link', 'Image URL', 'Specifications'];
+        const rows = listItems.map(item => {
+            const specs = Array.isArray(item.specifications) ? item.specifications.join('; ') : (item.specifications || '');
+            const tags = Array.isArray(item.tags) ? item.tags.join(', ') : (item.tags || '');
+            return [
+                `"${(item.title || '').replace(/"/g, '""')}"`,
+                item.price || 0,
+                item.current_price || '',
+                item.category || '',
+                item.priority || '',
+                `"${tags.replace(/"/g, '""')}"`,
+                item.purchase_link || '',
+                item.image_url || '',
+                `"${specs.replace(/"/g, '""')}"`
+            ];
+        });
+        
+        const csvContent = [
+            headers.join(','),
+            ...rows.map(row => row.join(','))
+        ].join('\n');
+        
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        link.setAttribute('href', url);
+        link.setAttribute('download', `${listName.replace(/[^a-z0-9]/gi, '_')}_export.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    } else {
+        // Export as JSON
+        const exportData = {
+            listName: listName,
+            exportDate: new Date().toISOString(),
+            itemCount: listItems.length,
+            totalPrice: listItems.reduce((sum, item) => sum + (item.price || 0), 0),
+            items: listItems.map(item => ({
+                title: item.title,
+                price: item.price,
+                current_price: item.current_price,
+                category: item.category,
+                priority: item.priority,
+                tags: item.tags,
+                purchase_link: item.purchase_link,
+                image_url: item.image_url,
+                specifications: item.specifications,
+                created_at: item.created_at
+            }))
+        };
+        
+        const jsonContent = JSON.stringify(exportData, null, 2);
+        const blob = new Blob([jsonContent], { type: 'application/json;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        link.setAttribute('href', url);
+        link.setAttribute('download', `${listName.replace(/[^a-z0-9]/gi, '_')}_export.json`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+    
+    showStatus(`List "${listName}" exported successfully!`, 'success');
 }
 
 async function deleteList(listName) {
@@ -1608,8 +1697,22 @@ async function saveItem() {
 function cancelItemForm() {
     document.getElementById('itemDetailsForm').classList.add('hidden');
     currentEditingItem = null;
+    // Clear all form fields
     document.getElementById('productUrl').value = '';
     document.getElementById('scrapingStatus').textContent = '';
+    document.getElementById('detailTitle').value = '';
+    document.getElementById('detailPrice').value = '';
+    document.getElementById('detailImageUrl').value = '';
+    document.getElementById('detailPurchaseLink').value = '';
+    document.getElementById('detailSpecs').value = '';
+    document.getElementById('detailCategory').value = '';
+    document.getElementById('detailPriority').value = 'medium';
+    document.getElementById('detailTags').value = '';
+    document.getElementById('detailGoal').value = '';
+    document.getElementById('detailList').value = '';
+    // Clear image preview
+    document.getElementById('imagePreview').style.display = 'none';
+    document.getElementById('previewImage').src = '';
 }
 
 async function loadItems() {
@@ -1771,16 +1874,23 @@ async function checkItemPrice(item) {
                 
                 if (response.ok) {
                     const result = await response.json();
-                    if (result.success && result.product && result.product.price) {
-                        const newPrice = parseFloat(result.product.price);
-                        if (!isNaN(newPrice) && newPrice > 0) {
+                    if (result.success && result.product) {
+                        const price = result.product.price;
+                        // Check if price exists and is valid (> 0)
+                        if (price !== null && price !== undefined && !isNaN(price) && price > 0) {
+                            const newPrice = parseFloat(price);
                             await updateItemPrice(item.id, newPrice);
                             console.log(`✓ Price updated via Edge Function for ${item.title}: €${newPrice.toFixed(2)} (original: €${(item.price || 0).toFixed(2)})`);
                             return;
+                        } else {
+                            console.log(`Edge function returned invalid price (${price}) for ${item.title}, trying Gemini API...`);
                         }
+                    } else {
+                        console.log(`Edge function returned unsuccessful result for ${item.title}, trying Gemini API...`);
                     }
                 } else {
-                    console.log(`Edge function returned status ${response.status}, trying Gemini API...`);
+                    const errorText = await response.text().catch(() => '');
+                    console.log(`Edge function returned status ${response.status} for ${item.title}, trying Gemini API...`, errorText);
                 }
             } catch (edgeError) {
                 console.log('Edge function failed, trying Gemini API...', edgeError.message || edgeError);
@@ -1792,7 +1902,7 @@ async function checkItemPrice(item) {
         // Use Gemini API directly - it can access websites without needing CORS proxies
         // This is more reliable than CORS proxies which often fail
         console.log(`Using Gemini API to extract price from: ${url}`);
-        const prompt = `Extract the current price from this product URL: ${url}
+        const prompt = `${url}
 
 IMPORTANT INSTRUCTIONS:
 1. Visit the URL and find the current price of the product
@@ -1831,18 +1941,24 @@ Example if price not found: {"price": null}`;
             }
             
             const product = JSON.parse(jsonText);
-            if (product.price && !isNaN(product.price) && product.price > 0) {
+            // Check if price exists and is valid (> 0)
+            if (product && product.price !== null && product.price !== undefined && !isNaN(product.price) && product.price > 0) {
                 const newPrice = parseFloat(product.price);
                 console.log(`✓ Price extracted for ${item.title}: €${newPrice.toFixed(2)} (original: €${(item.price || 0).toFixed(2)})`);
                 await updateItemPrice(item.id, newPrice);
                 return;
             } else {
                 console.log(`✗ No valid price found for ${item.title} - Gemini returned: ${JSON.stringify(product)}`);
-                throw new Error(`Could not extract price for ${item.title}`);
+                throw new Error(`Could not extract price for ${item.title} - price was ${product?.price || 'missing'}`);
             }
         } catch (parseError) {
             console.error(`Error parsing Gemini response for ${item.title}:`, parseError);
-            throw new Error(`Failed to parse price data for ${item.title}`);
+            // Log the actual response for debugging
+            let errorMsg = `Failed to parse price data for ${item.title}`;
+            if (parseError.message) {
+                errorMsg += `: ${parseError.message}`;
+            }
+            throw new Error(errorMsg);
         }
     } catch (error) {
         console.error(`Error checking price for item ${item.id} (${item.title}):`, error.message || error);

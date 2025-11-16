@@ -41,21 +41,46 @@ body {
         max-width: 100%;
     }
     
+    .header {
+        padding: 20px 0;
+        margin-bottom: 24px;
+    }
+    
     .header h1 {
         font-size: 1.8rem;
     }
     
-    .filters-row {
+    .subtitle {
+        font-size: 1rem;
+    }
+    
+    .card {
+        padding: 16px;
+        margin-bottom: 16px;
+    }
+    
+    .section-header {
         flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+    }
+    
+    .section-header h2 {
+        font-size: 1.25rem;
+    }
+    
+    .filters-row {
+        grid-template-columns: 1fr;
         gap: 12px;
     }
     
     .form-row {
-        flex-direction: column;
+        grid-template-columns: 1fr;
     }
     
     .wishlist-grid {
         grid-template-columns: 1fr;
+        gap: 16px;
     }
     
     .auth-form {
@@ -66,6 +91,123 @@ body {
     
     .auth-form input,
     .auth-form button {
+        width: 100%;
+    }
+    
+    .profile-form {
+        grid-template-columns: 1fr;
+    }
+    
+    .whatif-form,
+    .planner-form {
+        grid-template-columns: 1fr;
+    }
+    
+    .wishlist-stats {
+        flex-direction: column;
+        gap: 12px;
+    }
+    
+    .stat-item {
+        width: 100%;
+    }
+    
+    .item-actions {
+        flex-direction: column;
+    }
+    
+    .item-actions .btn {
+        width: 100%;
+        min-width: auto;
+    }
+    
+    .modal-content {
+        width: 95%;
+        padding: 16px;
+        max-height: 95vh;
+    }
+    
+    .goals-list,
+    .lists-list {
+        flex-direction: column;
+    }
+    
+    .goal-badge {
+        width: 100%;
+    }
+    
+    .list-name-container {
+        flex-wrap: wrap;
+    }
+    
+    .goal-stats {
+        font-size: 0.8rem;
+    }
+    
+    .btn {
+        padding: 8px 16px;
+        font-size: 0.9rem;
+    }
+    
+    .form-group input,
+    .form-group select,
+    .form-group textarea {
+        font-size: 16px; /* Prevents zoom on iOS */
+    }
+    
+    .tabs {
+        flex-wrap: wrap;
+    }
+    
+    .tab-btn {
+        padding: 8px 16px;
+        font-size: 0.9rem;
+    }
+    
+    /* List buttons on mobile */
+    .export-list-btn,
+    .delete-list-btn {
+        font-size: 0.75rem;
+        padding: 4px 8px;
+    }
+    
+    /* Budget cards */
+    .budgets-list {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+    
+    /* Wishlist section header */
+    .wishlist-section .section-header {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .wishlist-section .section-header > div {
+        flex-direction: column;
+        gap: 12px;
+        width: 100%;
+    }
+    
+    .wishlist-section .section-header .form-group {
+        width: 100%;
+    }
+    
+    .wishlist-section .section-header input {
+        width: 100%;
+    }
+    
+    /* Item details form */
+    .item-details-form {
+        padding: 16px;
+    }
+    
+    .form-actions {
+        flex-direction: column;
+    }
+    
+    .form-actions .btn {
         width: 100%;
     }
 }
@@ -655,26 +797,4 @@ body {
     }
 }
 
-/* Responsive */
-@media (max-width: 768px) {
-    .header h1 {
-        font-size: 2rem;
-    }
-
-    .wishlist-grid {
-        grid-template-columns: 1fr;
-    }
-
-    .form-row {
-        grid-template-columns: 1fr;
-    }
-
-    .filters-row {
-        grid-template-columns: 1fr;
-    }
-
-    .profile-form {
-        grid-template-columns: 1fr;
-    }
-}
 

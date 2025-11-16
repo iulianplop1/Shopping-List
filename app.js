@@ -9,35 +9,101 @@ const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/
 // Initialize Supabase client
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-// Helper function to call Gemini API
-async function callGeminiAPI(prompt) {
-    const response = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-            contents: [{
-                parts: [{
-                    text: prompt
-                }]
-            }]
-        })
-    });
+// Rate limiting and retry configuration
+let lastApiCallTime = 0;
+const MIN_API_CALL_INTERVAL = 1000; // Minimum 1 second between API calls
+let apiCallQueue = [];
+let isProcessingQueue = false;
 
-    if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Gemini API error: ${errorText}`);
+// Helper function to call Gemini API with retry logic and rate limiting
+async function callGeminiAPI(prompt, retries = 3, baseDelay = 2000) {
+    // Rate limiting: ensure minimum time between calls
+    const now = Date.now();
+    const timeSinceLastCall = now - lastApiCallTime;
+    if (timeSinceLastCall < MIN_API_CALL_INTERVAL) {
+        await new Promise(resolve => setTimeout(resolve, MIN_API_CALL_INTERVAL - timeSinceLastCall));
     }
-
-    const data = await response.json();
-    const responseText = data.candidates?.[0]?.content?.parts?.[0]?.text;
     
-    if (!responseText) {
-        throw new Error('No response from Gemini API');
-    }
+    for (let attempt = 0; attempt < retries; attempt++) {
+        try {
+            lastApiCallTime = Date.now();
+            
+            const response = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    contents: [{
+                        parts: [{
+                            text: prompt
+                        }]
+                    }]
+                })
+            });
 
-    return responseText;
+            if (!response.ok) {
+                const errorText = await response.text();
+                let errorData = {};
+                
+                // Try to parse error as JSON, but handle cases where it's not
+                try {
+                    const parsed = JSON.parse(errorText);
+                    errorData = parsed.error || parsed || {};
+                } catch (e) {
+                    // Not JSON, use error text as-is
+                }
+                
+                // Check for rate limit or overload errors
+                const errorMsg = errorText.toLowerCase();
+                const errorDataMsg = (errorData.message || '').toLowerCase();
+                const isRateLimitError = response.status === 429 || 
+                    response.status === 503 ||
+                    errorMsg.includes('overloaded') ||
+                    errorMsg.includes('quota') ||
+                    errorMsg.includes('rate limit') ||
+                    errorMsg.includes('resource exhausted') ||
+                    errorDataMsg.includes('overloaded') ||
+                    errorDataMsg.includes('quota') ||
+                    errorDataMsg.includes('resource exhausted');
+                
+                if (isRateLimitError && attempt < retries - 1) {
+                    // Exponential backoff: wait longer with each retry
+                    const delay = baseDelay * Math.pow(2, attempt);
+                    console.log(`Rate limit/overload detected, retrying in ${delay}ms (attempt ${attempt + 1}/${retries})...`);
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                    continue; // Retry
+                }
+                
+                throw new Error(`Gemini API error: ${errorText}`);
+            }
+
+            const data = await response.json();
+            const responseText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+            
+            if (!responseText) {
+                throw new Error('No response from Gemini API');
+            }
+
+            return responseText;
+            
+        } catch (error) {
+            // If this is the last attempt, throw the error
+            if (attempt === retries - 1) {
+                // Check if it's a rate limit error and provide user-friendly message
+                const errorMsg = error.message || String(error);
+                if (errorMsg.toLowerCase().includes('overloaded') || 
+                    errorMsg.toLowerCase().includes('quota') ||
+                    errorMsg.toLowerCase().includes('rate limit')) {
+                    throw new Error('Model is currently overloaded. Please wait a moment and try again.');
+                }
+                throw error;
+            }
+            // Otherwise, wait and retry
+            const delay = baseDelay * Math.pow(2, attempt);
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
+    }
 }
 
 // State
@@ -1598,7 +1664,12 @@ If you cannot find certain information, use null for that field. Price should be
         // Show more specific error message
         let errorMsg = 'Error scraping product. ';
         if (error.message) {
-            errorMsg += error.message;
+            const msg = error.message.toLowerCase();
+            if (msg.includes('overloaded') || msg.includes('quota') || msg.includes('rate limit')) {
+                errorMsg = '⚠️ Model is currently overloaded. The system will retry automatically, but you may need to wait a moment and try again. Alternatively, use manual entry.';
+            } else {
+                errorMsg += error.message;
+            }
         } else {
             errorMsg += 'Please try manual entry or check the browser console for details.';
         }
@@ -1818,11 +1889,27 @@ async function checkPricesDaily(forceCheck = false) {
             }
             await checkItemPrice(item);
             successCount++;
-            // Add a small delay between requests to avoid rate limiting
-            await new Promise(resolve => setTimeout(resolve, 2000));
+            // Add a longer delay between requests to avoid rate limiting (3 seconds)
+            // The callGeminiAPI function also has its own rate limiting, but this adds extra safety
+            if (i < itemsToUpdate.length - 1) { // Don't wait after the last item
+                await new Promise(resolve => setTimeout(resolve, 3000));
+            }
         } catch (error) {
             console.error(`Error checking price for item ${item.id}:`, error);
             failCount++;
+            // If it's a rate limit error, wait longer before continuing
+            const errorMsg = error.message || String(error);
+            if (errorMsg.toLowerCase().includes('overloaded') || 
+                errorMsg.toLowerCase().includes('quota') ||
+                errorMsg.toLowerCase().includes('rate limit')) {
+                if (forceCheck) {
+                    statusEl.textContent = `Rate limited. Waiting before continuing...`;
+                }
+                await new Promise(resolve => setTimeout(resolve, 5000));
+            } else {
+                // Regular error, shorter delay
+                await new Promise(resolve => setTimeout(resolve, 2000));
+            }
         }
     }
     
@@ -1837,13 +1924,19 @@ async function checkPricesDaily(forceCheck = false) {
             statusEl.textContent = `✓ Successfully checked ${successCount} item(s)${failCount > 0 ? ` (${failCount} failed)` : ''}.`;
         } else {
             statusEl.className = 'status-message error';
-            statusEl.textContent = `✗ Failed to check prices. Please try again later.`;
+            // Check if failures were due to rate limiting
+            const hasRateLimitErrors = failCount > 0;
+            if (hasRateLimitErrors) {
+                statusEl.textContent = `⚠️ Model overloaded. Please wait a few minutes and try again. The system automatically retries, but too many requests were made.`;
+            } else {
+                statusEl.textContent = `✗ Failed to check prices. Please try again later.`;
+            }
         }
         checkBtn.disabled = false;
         checkBtn.textContent = '🔍 Check Prices Now';
         setTimeout(() => {
             statusEl.style.display = 'none';
-        }, 5000);
+        }, 8000); // Show longer for rate limit messages
     }
 }
 

@@ -1,0 +1,23 @@
+# Environment variables
+.env
+.env.local
+
+# Supabase
+.supabase/
+
+# Node modules (if using any build tools)
+node_modules/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+
